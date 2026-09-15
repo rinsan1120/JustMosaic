@@ -46,10 +46,13 @@ button:focus-visible, input:focus-visible {
   border-bottom: 1px solid var(--line);
 }
 
-.brand { display: flex; align-items: center; gap: 12px; font-size: 1.2rem; font-weight: 750; letter-spacing: -.02em; white-space: nowrap; }
-.brand-mark { width: 27px; height: 27px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; padding: 4px; background: var(--ink); border-radius: 7px; }
+.brand { min-width: 0; display: flex; align-items: center; gap: 12px; }
+.brand-mark { width: 27px; height: 27px; flex: 0 0 27px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; padding: 4px; background: var(--ink); border-radius: 7px; }
 .brand-mark i { background: white; border-radius: 1px; }
 .brand-mark i:last-child { background: #6890ff; }
+.brand-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.brand-title { font-size: 1.2rem; font-weight: 750; line-height: 1.15; letter-spacing: -.02em; white-space: nowrap; }
+.brand-tagline { color: var(--muted); font-size: .72rem; font-weight: 400; line-height: 1.25; overflow-wrap: anywhere; }
 
 .privacy-note { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: .875rem; }
 .privacy-note strong { color: #2c654c; font-weight: 700; margin-right: .35em; }
