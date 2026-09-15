@@ -24,6 +24,7 @@ export class MosaicEditor {
     };
     this.fitScale = 1;
     this.activeDraft = null;
+    this.hoverPointer = null;
     this.pointers = new Map();
     this.pinch = null;
     this.spacePressed = false;
@@ -52,6 +53,7 @@ export class MosaicEditor {
     this.state.operations = [];
     this.state.redoStack = [];
     this.activeDraft = null;
+    this.setHoverPointer(null);
     this.requestRender();
     this.notifyState();
   }
@@ -59,6 +61,7 @@ export class MosaicEditor {
   setTool(tool) {
     this.state.tool = tool;
     this.canvas.classList.toggle("is-brush", tool === "brush");
+    if (tool !== "brush") this.setHoverPointer(null);
     this.requestRender();
     this.notifyState();
   }
@@ -225,11 +228,32 @@ export class MosaicEditor {
       ctx.strokeRect(x, y, width, height);
       ctx.restore();
     }
+
+    if (this.state.tool === "brush" && this.hoverPointer && !this.panStart && !this.pinch) {
+      const x = transform.offsetX + this.hoverPointer.x * transform.scale;
+      const y = transform.offsetY + this.hoverPointer.y * transform.scale;
+      const brushSize = this.activeDraft?.type === "brushMosaic" ? this.activeDraft.brushSize : this.state.brushSize;
+      const radius = (brushSize * transform.scale) / 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(0, 0, 0, .7)";
+      ctx.lineWidth = 3 * ratio;
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(255, 255, 255, .95)";
+      ctx.lineWidth = 1.5 * ratio;
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   bindEvents() {
     this.canvas.addEventListener("pointerdown", (event) => this.onPointerDown(event));
     this.canvas.addEventListener("pointermove", (event) => this.onPointerMove(event));
+    this.canvas.addEventListener("pointerenter", (event) => this.updateHoverPointer(event));
+    this.canvas.addEventListener("pointerleave", (event) => {
+      if (event.pointerType === "mouse" || event.pointerType === "pen") this.setHoverPointer(null);
+    });
     this.canvas.addEventListener("pointerup", (event) => this.onPointerUp(event));
     this.canvas.addEventListener("pointercancel", (event) => this.onPointerUp(event, true));
     this.canvas.addEventListener("wheel", (event) => {
@@ -242,10 +266,12 @@ export class MosaicEditor {
 
   onPointerDown(event) {
     if (!this.hasImage) return;
+    this.updateHoverPointer(event);
     this.canvas.setPointerCapture(event.pointerId);
     this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (this.pointers.size === 2) {
       this.activeDraft = null;
+      this.setHoverPointer(null);
       const [a, b] = [...this.pointers.values()];
       this.pinch = {
         distance: Math.hypot(a.x - b.x, a.y - b.y),
@@ -258,6 +284,7 @@ export class MosaicEditor {
 
     if (event.button === 1 || this.spacePressed) {
       this.panStart = { x: event.clientX, y: event.clientY, offsetX: this.state.offsetX, offsetY: this.state.offsetY };
+      this.setHoverPointer(null);
       this.canvas.classList.add("is-panning");
       return;
     }
@@ -270,6 +297,7 @@ export class MosaicEditor {
   }
 
   onPointerMove(event) {
+    this.updateHoverPointer(event);
     if (!this.pointers.has(event.pointerId)) return;
     this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (this.pointers.size >= 2 && this.pinch) {
@@ -316,9 +344,16 @@ export class MosaicEditor {
     if (this.panStart) {
       this.panStart = null;
       this.canvas.classList.remove("is-panning");
+      if (cancelled) this.setHoverPointer(null);
+      else this.updateHoverPointer(event);
       return;
     }
-    if (cancelled || !this.activeDraft) { this.activeDraft = null; this.requestRender(); return; }
+    if (cancelled || !this.activeDraft) {
+      this.activeDraft = null;
+      if (cancelled) this.setHoverPointer(null);
+      else this.requestRender();
+      return;
+    }
     if (this.activeDraft.type === "rectangleDraft") {
       const { start, end } = this.activeDraft;
       const width = Math.abs(end.x - start.x);
@@ -332,6 +367,22 @@ export class MosaicEditor {
     if (event.code === "Space" && !event.repeat) { this.spacePressed = true; event.preventDefault(); }
   }
   handleKeyUp(event) { if (event.code === "Space") this.spacePressed = false; }
+
+  setHoverPointer(point) {
+    this.hoverPointer = point;
+    this.canvas.classList.toggle("has-brush-cursor", Boolean(point));
+    this.requestRender();
+  }
+
+  updateHoverPointer(event) {
+    const supportsHover = event.pointerType === "mouse" || event.pointerType === "pen";
+    if (!supportsHover || !this.hasImage || this.state.tool !== "brush" || this.panStart || this.pinch) {
+      this.setHoverPointer(null);
+      return;
+    }
+    const point = this.imagePoint(event.clientX, event.clientY);
+    this.setHoverPointer(this.isInside(point) ? point : null);
+  }
 
   notifyState() { this.callbacks.onStateChange?.(this.state); }
 }

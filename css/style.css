@@ -86,8 +86,10 @@ button:focus-visible, input:focus-visible {
 .editor-view, #editorCanvas { width: 100%; height: 100%; }
 .editor-view { position: absolute; inset: 0; overflow: hidden; }
 #editorCanvas { display: block; touch-action: none; cursor: crosshair; }
-#editorCanvas.is-brush { cursor: none; }
-#editorCanvas.is-panning { cursor: grabbing; }
+#editorCanvas.is-brush { cursor: crosshair; }
+#editorCanvas.is-brush.has-brush-cursor { cursor: none; }
+#editorCanvas.is-panning,
+#editorCanvas.is-brush.is-panning { cursor: grabbing; }
 
 .zoom-controls { position: absolute; right: 14px; top: 14px; display: flex; align-items: center; overflow: hidden; background: rgba(255,255,255,.94); border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 4px 16px rgba(25,36,57,.12); }
 .zoom-controls button, .zoom-controls output { min-width: 40px; height: 38px; border: 0; border-right: 1px solid var(--line); display: grid; place-items: center; background: transparent; font-weight: 700; }
