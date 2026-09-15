@@ -1,4 +1,4 @@
-import { renderOperations } from "./mosaic.js?v=2";
+import { renderOperations } from "./mosaic.js?v=3";
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
@@ -84,7 +84,20 @@ export class MosaicEditor {
   }
   setBrushSize(value) { this.state.brushSize = Number(value); this.requestRender(); }
   setAnnotationColor(value) { this.state.annotationColor = value; this.requestRender(); }
-  setAnnotationStrokeWidth(value) { this.state.annotationStrokeWidth = Number(value); this.requestRender(); }
+  setAnnotationStrokeWidth(value) {
+    const strokeWidth = Number(value);
+    this.state.annotationStrokeWidth = strokeWidth;
+
+    for (const operation of this.state.operations) {
+      if (operation.type === "arrowAnnotation" || operation.type === "ellipseAnnotation") operation.strokeWidth = strokeWidth;
+    }
+    for (const operation of this.state.redoStack) {
+      if (operation.type === "arrowAnnotation" || operation.type === "ellipseAnnotation") operation.strokeWidth = strokeWidth;
+    }
+    if (this.activeDraft?.type === "arrowDraft" || this.activeDraft?.type === "ellipseDraft") this.activeDraft.strokeWidth = strokeWidth;
+
+    this.requestRender();
+  }
 
   undo() {
     const operation = this.state.operations.pop();

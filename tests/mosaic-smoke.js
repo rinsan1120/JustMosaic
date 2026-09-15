@@ -61,6 +61,20 @@ try {
   const ellipsePixel = annotationContext.getImageData(60, 10, 1, 1).data;
   assert(arrowPixel[2] > arrowPixel[0], "矢印をモザイクより上に描画する");
   assert(ellipsePixel[0] > ellipsePixel[1], "丸囲みを輪郭線として描画する");
+
+  const arrowMoves = [];
+  const arrowLines = [];
+  const arrowShapeContext = {
+    save() {}, restore() {}, beginPath() {}, rect() {}, clip() {}, stroke() {}, closePath() {}, fill() {},
+    moveTo(x, y) { arrowMoves.push({ x, y }); },
+    lineTo(x, y) { arrowLines.push({ x, y }); },
+    set strokeStyle(value) {}, set fillStyle(value) {}, set lineWidth(value) {}, set lineCap(value) {}, set lineJoin(value) {},
+  };
+  renderOperations(arrowShapeContext, { width: 120, height: 80 }, [
+    { type: "arrowAnnotation", x1: 0, y1: 40, x2: 100, y2: 40, color: "#e53935", strokeWidth: 8 },
+  ], { scale: 1, offsetX: 0, offsetY: 0, imageWidth: 120, imageHeight: 80 });
+  assert(Math.abs(arrowLines[0].x - 68) < 0.01 && arrowLines[0].y === 40, "矢印の軸を矢尻の付け根で終了する");
+  assert(arrowMoves[1].x === 100 && arrowLines[1].x === arrowLines[2].x, "終点を頂点とする対称な矢尻を描画する");
   assert(buildOutputName("photo.jpeg", "image/jpeg") === "photo_mosaic.jpg", "JPEGの出力名を生成する");
   assert(buildOutputName("photo.png", "image/png") === "photo_mosaic.png", "PNGの出力名を生成する");
   assert(buildOutputName("photo.webp", "image/webp") === "photo_mosaic.webp", "WebPの出力名を生成する");
@@ -162,6 +176,28 @@ try {
   editor.activeDraft = null;
   editor.redo();
   assert(editor.state.operations.at(-1).blockSize === 40, "Redo後も最新のモザイク強度を維持する");
+
+  editor.state.operations = [
+    { type: "arrowAnnotation", x1: 1, y1: 2, x2: 30, y2: 20, color: "#e53935", strokeWidth: 8 },
+    { type: "ellipseAnnotation", x: 5, y: 6, width: 40, height: 25, color: "#2563eb", strokeWidth: 8 },
+    { type: "rectangleMosaic", x: 1, y: 2, width: 30, height: 20, blockSize: 40 },
+  ];
+  editor.state.redoStack = [
+    { type: "arrowAnnotation", x1: 3, y1: 4, x2: 20, y2: 30, color: "#16a34a", strokeWidth: 8 },
+  ];
+  editor.activeDraft = { type: "ellipseDraft", start: { x: 1, y: 1 }, end: { x: 20, y: 15 }, color: "#f4b400", strokeWidth: 8 };
+  renderRequests = 0;
+  editor.setAnnotationStrokeWidth("20");
+  assert(editor.state.annotationStrokeWidth === 20, "新しい注釈線幅を状態へ設定する");
+  assert(editor.state.operations.slice(0, 2).every((operation) => operation.strokeWidth === 20), "既存の矢印・丸囲みへ最新線幅を反映する");
+  assert(editor.state.redoStack.every((operation) => operation.strokeWidth === 20), "Redo待ちの注釈へ最新線幅を反映する");
+  assert(editor.activeDraft.strokeWidth === 20, "編集中の注釈へ最新線幅を反映する");
+  assert(editor.state.operations[0].color === "#e53935" && editor.state.operations[1].color === "#2563eb" && editor.activeDraft.color === "#f4b400", "注釈色は変更しない");
+  assert(editor.state.operations[2].blockSize === 40, "モザイク強度は変更しない");
+  assert(renderRequests === 1, "線幅変更後に再描画を要求する");
+  editor.activeDraft = null;
+  editor.redo();
+  assert(editor.state.operations.at(-1).strokeWidth === 20, "Redo後も最新の注釈線幅を維持する");
 
   const previewHeading = document.createElement("h2");
   previewHeading.textContent = "Brush cursor preview";

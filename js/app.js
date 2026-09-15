@@ -1,5 +1,5 @@
-import { MosaicEditor } from "./editor.js?v=2";
-import { exportImage } from "./export.js?v=2";
+import { MosaicEditor } from "./editor.js?v=3";
+import { exportImage } from "./export.js?v=3";
 
 const SUPPORTED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const elements = Object.fromEntries([
