@@ -25,7 +25,7 @@ export async function exportImage(state, originalName, mimeType) {
   context.drawImage(state.sourceImage, 0, 0, canvas.width, canvas.height);
   renderOperations(context, canvas, state.operations, { scale: 1, offsetX: 0, offsetY: 0 });
   const blob = await new Promise((resolve, reject) => {
-    canvas.toBlob((result) => result ? resolve(result) : reject(new Error("ENCODE_FAILED")), mimeType, mimeType === "image/jpeg" ? 0.92 : undefined);
+    canvas.toBlob((result) => result ? resolve(result) : reject(new Error("ENCODE_FAILED")), mimeType, mimeType === "image/jpeg" ? 0.98 : undefined);
   });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
