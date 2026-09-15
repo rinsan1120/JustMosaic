@@ -49,9 +49,9 @@ try {
   assert(buildOutputName("photo.webp", "image/webp") === "photo_mosaic.webp", "WebPの出力名を生成する");
 
   result.textContent = `${assertions.join("\n")}\n\n${assertions.length} tests passed.`;
-  document.title = "PASS — Local Mosaic smoke test";
+  document.title = "PASS — JustMosaic! smoke test";
 } catch (error) {
   result.textContent = `FAIL: ${error.message}`;
-  document.title = "FAIL — Local Mosaic smoke test";
+  document.title = "FAIL — JustMosaic! smoke test";
   throw error;
 }
