@@ -1,4 +1,4 @@
-import { renderOperations } from "./mosaic.js";
+import { renderOperations } from "./mosaic.js?v=2";
 
 const MIME_EXTENSIONS = {
   "image/jpeg": "jpg",
@@ -23,7 +23,7 @@ export async function exportImage(state, originalName, mimeType) {
     context.fillRect(0, 0, canvas.width, canvas.height);
   }
   context.drawImage(state.sourceImage, 0, 0, canvas.width, canvas.height);
-  renderOperations(context, canvas, state.operations, { scale: 1, offsetX: 0, offsetY: 0 });
+  renderOperations(context, canvas, state.operations, { scale: 1, offsetX: 0, offsetY: 0, imageWidth: state.imageWidth, imageHeight: state.imageHeight });
   const blob = await new Promise((resolve, reject) => {
     canvas.toBlob((result) => result ? resolve(result) : reject(new Error("ENCODE_FAILED")), mimeType, mimeType === "image/jpeg" ? 0.98 : undefined);
   });

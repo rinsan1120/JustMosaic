@@ -1,11 +1,11 @@
-import { MosaicEditor } from "./editor.js";
-import { exportImage } from "./export.js";
+import { MosaicEditor } from "./editor.js?v=2";
+import { exportImage } from "./export.js?v=2";
 
 const SUPPORTED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const elements = Object.fromEntries([
   "stage", "dropZone", "editorView", "editorCanvas", "openInitial", "openAnother", "fileInput",
   "loading", "message", "mosaicSize", "mosaicValue", "brushSize", "brushValue", "brushSizeRow",
-  "undo", "redo", "saveImage", "zoomIn", "zoomOut", "zoomReset", "zoomValue",
+  "annotationStrokeWidth", "annotationStrokeValue", "undo", "redo", "saveImage", "zoomIn", "zoomOut", "zoomReset", "zoomValue",
 ].map((id) => [id, document.getElementById(id)]));
 
 let currentFile = null;
@@ -134,6 +134,21 @@ elements.brushSize.addEventListener("input", () => {
   elements.brushValue.value = `${elements.brushSize.value} px`;
   elements.brushValue.textContent = `${elements.brushSize.value} px`;
   editor.setBrushSize(elements.brushSize.value);
+});
+elements.annotationStrokeWidth.addEventListener("input", () => {
+  elements.annotationStrokeValue.value = `${elements.annotationStrokeWidth.value} px`;
+  elements.annotationStrokeValue.textContent = `${elements.annotationStrokeWidth.value} px`;
+  editor.setAnnotationStrokeWidth(elements.annotationStrokeWidth.value);
+});
+document.querySelectorAll("[data-annotation-color]").forEach((button) => {
+  button.addEventListener("click", () => {
+    editor.setAnnotationColor(button.dataset.annotationColor);
+    document.querySelectorAll("[data-annotation-color]").forEach((item) => {
+      const active = item === button;
+      item.classList.toggle("is-active", active);
+      item.setAttribute("aria-pressed", String(active));
+    });
+  });
 });
 
 elements.undo.addEventListener("click", () => editor.undo());

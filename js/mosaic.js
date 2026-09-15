@@ -101,9 +101,68 @@ function applyBrush(context, canvas, operation, transform) {
   context.drawImage(layer, bounds.x, bounds.y);
 }
 
+function applyArrow(context, operation, transform) {
+  const x1 = transform.offsetX + operation.x1 * transform.scale;
+  const y1 = transform.offsetY + operation.y1 * transform.scale;
+  const x2 = transform.offsetX + operation.x2 * transform.scale;
+  const y2 = transform.offsetY + operation.y2 * transform.scale;
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const distance = Math.hypot(x2 - x1, y2 - y1);
+  if (distance < 1) return;
+  const lineWidth = operation.strokeWidth * transform.scale;
+  const headLength = Math.min(distance * 0.45, Math.max(12, operation.strokeWidth * 4) * transform.scale);
+  const headAngle = Math.PI / 7;
+
+  context.save();
+  context.strokeStyle = operation.color;
+  context.fillStyle = operation.color;
+  context.lineWidth = lineWidth;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.beginPath();
+  context.moveTo(x1, y1);
+  context.lineTo(x2, y2);
+  context.stroke();
+  context.beginPath();
+  context.moveTo(x2, y2);
+  context.lineTo(x2 - headLength * Math.cos(angle - headAngle), y2 - headLength * Math.sin(angle - headAngle));
+  context.lineTo(x2 - headLength * Math.cos(angle + headAngle), y2 - headLength * Math.sin(angle + headAngle));
+  context.closePath();
+  context.fill();
+  context.restore();
+}
+
+function applyEllipse(context, operation, transform) {
+  const centerX = transform.offsetX + (operation.x + operation.width / 2) * transform.scale;
+  const centerY = transform.offsetY + (operation.y + operation.height / 2) * transform.scale;
+  context.save();
+  context.strokeStyle = operation.color;
+  context.lineWidth = operation.strokeWidth * transform.scale;
+  context.beginPath();
+  context.ellipse(centerX, centerY, operation.width * transform.scale / 2, operation.height * transform.scale / 2, 0, 0, Math.PI * 2);
+  context.stroke();
+  context.restore();
+}
+
+function applyAnnotation(context, operation, transform) {
+  if (operation.type === "arrowAnnotation") applyArrow(context, operation, transform);
+  if (operation.type === "ellipseAnnotation") applyEllipse(context, operation, transform);
+}
+
 export function renderOperations(context, canvas, operations, transform) {
   for (const operation of operations) {
     if (operation.type === "rectangleMosaic") applyRectangle(context, canvas, operation, transform);
     if (operation.type === "brushMosaic") applyBrush(context, canvas, operation, transform);
   }
+  context.save();
+  context.beginPath();
+  context.rect(
+    transform.offsetX,
+    transform.offsetY,
+    (transform.imageWidth ?? canvas.width / transform.scale) * transform.scale,
+    (transform.imageHeight ?? canvas.height / transform.scale) * transform.scale,
+  );
+  context.clip();
+  for (const operation of operations) applyAnnotation(context, operation, transform);
+  context.restore();
 }

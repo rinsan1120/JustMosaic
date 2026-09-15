@@ -45,6 +45,22 @@ try {
   }], { scale: 1, offsetX: 0, offsetY: 0 });
   const brushOutsideAfter = [...context.getImageData(105, 70, 1, 1).data];
   assert(brushOutside.every((value, index) => value === brushOutsideAfter[index]), "ブラシ範囲の外側を変更しない");
+
+  const annotationCanvas = document.createElement("canvas");
+  annotationCanvas.width = 120;
+  annotationCanvas.height = 80;
+  const annotationContext = annotationCanvas.getContext("2d");
+  annotationContext.fillStyle = "#ffffff";
+  annotationContext.fillRect(0, 0, 120, 80);
+  renderOperations(annotationContext, annotationCanvas, [
+    { type: "arrowAnnotation", x1: 10, y1: 40, x2: 110, y2: 40, color: "#2563eb", strokeWidth: 6 },
+    { type: "ellipseAnnotation", x: 20, y: 10, width: 80, height: 50, color: "#e53935", strokeWidth: 4 },
+    { type: "rectangleMosaic", x: 0, y: 0, width: 120, height: 80, blockSize: 12 },
+  ], { scale: 1, offsetX: 0, offsetY: 0, imageWidth: 120, imageHeight: 80 });
+  const arrowPixel = annotationContext.getImageData(60, 40, 1, 1).data;
+  const ellipsePixel = annotationContext.getImageData(60, 10, 1, 1).data;
+  assert(arrowPixel[2] > arrowPixel[0], "矢印をモザイクより上に描画する");
+  assert(ellipsePixel[0] > ellipsePixel[1], "丸囲みを輪郭線として描画する");
   assert(buildOutputName("photo.jpeg", "image/jpeg") === "photo_mosaic.jpg", "JPEGの出力名を生成する");
   assert(buildOutputName("photo.png", "image/png") === "photo_mosaic.png", "PNGの出力名を生成する");
   assert(buildOutputName("photo.webp", "image/webp") === "photo_mosaic.webp", "WebPの出力名を生成する");
@@ -100,6 +116,31 @@ try {
   assert(editor.hoverPointer === null, "タッチ操作ではブラシカーソルを表示しない");
   editorCanvas.dispatchEvent(new PointerEvent("pointermove", { pointerType: "mouse", clientX: editorRect.left, clientY: editorRect.top }));
   assert(editor.hoverPointer === null, "画像領域外ではブラシカーソルを表示しない");
+
+  const clientPoint = (x, y) => ({
+    clientX: editorRect.left + editor.state.offsetX + x * editor.displayScale,
+    clientY: editorRect.top + editor.state.offsetY + y * editor.displayScale,
+  });
+  editor.canvas.setPointerCapture = () => {};
+  editor.setTool("arrow");
+  editor.setAnnotationColor("#16a34a");
+  editor.setAnnotationStrokeWidth("12");
+  editor.onPointerDown({ pointerId: 7, button: 0, pointerType: "mouse", ...clientPoint(20, 20) });
+  editor.onPointerMove({ pointerId: 7, pointerType: "mouse", ...clientPoint(160, 70) });
+  editor.onPointerUp({ pointerId: 7, pointerType: "mouse", ...clientPoint(160, 70) });
+  const arrowOperation = editor.state.operations.at(-1);
+  assert(arrowOperation.type === "arrowAnnotation" && arrowOperation.color === "#16a34a" && arrowOperation.strokeWidth === 12, "矢印を色・線幅付きで履歴へ確定する");
+
+  editor.setTool("ellipse");
+  editor.onPointerDown({ pointerId: 8, button: 0, pointerType: "mouse", ...clientPoint(30, 15) });
+  editor.onPointerMove({ pointerId: 8, pointerType: "mouse", ...clientPoint(140, 75) });
+  editor.onPointerUp({ pointerId: 8, pointerType: "mouse", ...clientPoint(140, 75) });
+  const ellipseOperation = editor.state.operations.at(-1);
+  assert(ellipseOperation.type === "ellipseAnnotation" && Math.abs(ellipseOperation.width - 110) < 0.01 && Math.abs(ellipseOperation.height - 60) < 0.01, "ドラッグ範囲を楕円注釈として確定する");
+  editor.undo();
+  assert(editor.state.redoStack.at(-1).type === "ellipseAnnotation", "丸囲みをUndoできる");
+  editor.redo();
+  assert(editor.state.operations.at(-1).type === "ellipseAnnotation", "丸囲みをRedoできる");
 
   editor.state.operations = [
     { type: "rectangleMosaic", x: 1, y: 2, width: 30, height: 20, blockSize: 20 },

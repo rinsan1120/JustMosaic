@@ -1,4 +1,4 @@
-import { renderOperations } from "./mosaic.js";
+import { renderOperations } from "./mosaic.js?v=2";
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
@@ -18,6 +18,8 @@ export class MosaicEditor {
       tool: "rectangle",
       mosaicSize: 20,
       brushSize: 80,
+      annotationColor: "#e53935",
+      annotationStrokeWidth: 8,
       zoom: 1,
       offsetX: 0,
       offsetY: 0,
@@ -81,6 +83,8 @@ export class MosaicEditor {
     this.requestRender();
   }
   setBrushSize(value) { this.state.brushSize = Number(value); this.requestRender(); }
+  setAnnotationColor(value) { this.state.annotationColor = value; this.requestRender(); }
+  setAnnotationStrokeWidth(value) { this.state.annotationStrokeWidth = Number(value); this.requestRender(); }
 
   undo() {
     const operation = this.state.operations.pop();
@@ -211,6 +215,8 @@ export class MosaicEditor {
       scale: this.displayScale * ratio,
       offsetX: this.state.offsetX * ratio,
       offsetY: this.state.offsetY * ratio,
+      imageWidth: this.state.imageWidth,
+      imageHeight: this.state.imageHeight,
     };
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(
@@ -240,6 +246,14 @@ export class MosaicEditor {
       ctx.fillRect(x, y, width, height);
       ctx.strokeRect(x, y, width, height);
       ctx.restore();
+    }
+
+    if (this.activeDraft?.type === "arrowDraft" || this.activeDraft?.type === "ellipseDraft") {
+      const { start, end, color, strokeWidth } = this.activeDraft;
+      const operation = this.activeDraft.type === "arrowDraft"
+        ? { type: "arrowAnnotation", x1: start.x, y1: start.y, x2: end.x, y2: end.y, color, strokeWidth }
+        : { type: "ellipseAnnotation", x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), width: Math.abs(end.x - start.x), height: Math.abs(end.y - start.y), color, strokeWidth };
+      renderOperations(ctx, this.canvas, [operation], transform);
     }
 
     if (this.state.tool === "brush" && this.hoverPointer && !this.panStart && !this.pinch) {
@@ -305,7 +319,14 @@ export class MosaicEditor {
     const point = this.imagePoint(event.clientX, event.clientY);
     if (!this.isInside(point)) return;
     if (this.state.tool === "rectangle") this.activeDraft = { type: "rectangleDraft", start: point, end: point };
-    else this.activeDraft = { type: "brushMosaic", points: [point], brushSize: this.state.brushSize, blockSize: this.state.mosaicSize };
+    else if (this.state.tool === "brush") this.activeDraft = { type: "brushMosaic", points: [point], brushSize: this.state.brushSize, blockSize: this.state.mosaicSize };
+    else this.activeDraft = {
+      type: this.state.tool === "arrow" ? "arrowDraft" : "ellipseDraft",
+      start: point,
+      end: point,
+      color: this.state.annotationColor,
+      strokeWidth: this.state.annotationStrokeWidth,
+    };
     this.requestRender();
   }
 
@@ -342,7 +363,7 @@ export class MosaicEditor {
     }
     if (!this.activeDraft) return;
     const point = this.imagePoint(event.clientX, event.clientY, true);
-    if (this.activeDraft.type === "rectangleDraft") this.activeDraft.end = point;
+    if (this.activeDraft.type === "rectangleDraft" || this.activeDraft.type === "arrowDraft" || this.activeDraft.type === "ellipseDraft") this.activeDraft.end = point;
     else {
       const last = this.activeDraft.points.at(-1);
       const minimumGap = Math.max(1, this.activeDraft.brushSize / 10);
@@ -372,6 +393,16 @@ export class MosaicEditor {
       const width = Math.abs(end.x - start.x);
       const height = Math.abs(end.y - start.y);
       if (width >= 1 && height >= 1) this.commit({ type: "rectangleMosaic", x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), width, height, blockSize: this.state.mosaicSize });
+      else { this.activeDraft = null; this.requestRender(); }
+    } else if (this.activeDraft.type === "arrowDraft") {
+      const { start, end, color, strokeWidth } = this.activeDraft;
+      if (Math.hypot(end.x - start.x, end.y - start.y) >= 1) this.commit({ type: "arrowAnnotation", x1: start.x, y1: start.y, x2: end.x, y2: end.y, color, strokeWidth });
+      else { this.activeDraft = null; this.requestRender(); }
+    } else if (this.activeDraft.type === "ellipseDraft") {
+      const { start, end, color, strokeWidth } = this.activeDraft;
+      const width = Math.abs(end.x - start.x);
+      const height = Math.abs(end.y - start.y);
+      if (width >= 1 && height >= 1) this.commit({ type: "ellipseAnnotation", x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), width, height, color, strokeWidth });
       else { this.activeDraft = null; this.requestRender(); }
     } else this.commit(this.activeDraft);
   }

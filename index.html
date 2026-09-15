@@ -10,7 +10,7 @@
     <meta name="description" content="画像をアップロードせず、ブラウザ内だけでモザイク加工できるツール">
     <meta name="theme-color" content="#f5f7fb">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23192439'/%3E%3Cpath fill='%23fff' d='M7 7h8v8H7zm10 0h8v8h-8zM7 17h8v8H7z'/%3E%3Cpath fill='%234d7cff' d='M17 17h8v8h-8z'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="css/style.css?v=2">
+    <link rel="stylesheet" href="css/style.css?v=3">
     <title>JustMosaic!</title>
   </head>
   <body>
@@ -60,37 +60,73 @@
         </section>
 
         <section class="control-panel" aria-label="編集ツール">
-          <div class="tools-block">
-            <span class="group-label">ツール</span>
-            <div class="segmented" role="group" aria-label="編集ツールを選択">
-              <button class="tool-button is-active" type="button" data-tool="rectangle" aria-pressed="true">
-                <span class="rect-icon" aria-hidden="true"></span>矩形
-              </button>
-              <button class="tool-button" type="button" data-tool="brush" aria-pressed="false">
-                <span class="brush-icon" aria-hidden="true"></span>ブラシ
-              </button>
+          <div class="editor-tools">
+            <section class="tool-section mosaic-section" aria-labelledby="mosaicToolsLabel">
+              <div class="tools-block">
+                <h2 id="mosaicToolsLabel" class="group-label">モザイク</h2>
+                <div class="segmented" role="group" aria-label="モザイクツールを選択">
+                  <button class="tool-button is-active" type="button" data-tool="rectangle" aria-pressed="true">
+                    <span class="rect-icon" aria-hidden="true"></span>矩形
+                  </button>
+                  <button class="tool-button" type="button" data-tool="brush" aria-pressed="false">
+                    <span class="brush-icon" aria-hidden="true"></span>ブラシ
+                  </button>
+                </div>
+              </div>
+
+              <div class="sliders-block">
+                <label class="slider-row" for="mosaicSize">
+                  <span class="slider-heading"><span>モザイク強度</span><output id="mosaicValue">20 px</output></span>
+                  <span class="range-wrap"><span class="range-caption">細かい</span><input id="mosaicSize" type="range" min="4" max="50" value="20"><span class="range-caption">粗い</span></span>
+                </label>
+                <label id="brushSizeRow" class="slider-row is-muted" for="brushSize">
+                  <span class="slider-heading"><span>ブラシサイズ</span><output id="brushValue">80 px</output></span>
+                  <span class="range-wrap"><span class="range-caption">小</span><input id="brushSize" type="range" min="12" max="300" value="80" disabled><span class="range-caption">大</span></span>
+                </label>
+              </div>
+            </section>
+
+            <section class="tool-section annotation-section" aria-labelledby="annotationToolsLabel">
+              <div class="tools-block">
+                <h2 id="annotationToolsLabel" class="group-label">注釈</h2>
+                <div class="segmented" role="group" aria-label="注釈ツールを選択">
+                  <button class="tool-button" type="button" data-tool="arrow" aria-pressed="false">
+                    <span class="arrow-icon" aria-hidden="true"></span>矢印
+                  </button>
+                  <button class="tool-button" type="button" data-tool="ellipse" aria-pressed="false">
+                    <span class="ellipse-icon" aria-hidden="true"></span>丸囲み
+                  </button>
+                </div>
+              </div>
+
+              <div class="annotation-settings">
+                <fieldset class="color-setting">
+                  <legend>色</legend>
+                  <div class="color-options">
+                    <button class="color-button color-red is-active" type="button" data-annotation-color="#e53935" aria-label="赤" aria-pressed="true"></button>
+                    <button class="color-button color-yellow" type="button" data-annotation-color="#f4b400" aria-label="黄" aria-pressed="false"></button>
+                    <button class="color-button color-blue" type="button" data-annotation-color="#2563eb" aria-label="青" aria-pressed="false"></button>
+                    <button class="color-button color-green" type="button" data-annotation-color="#16a34a" aria-label="緑" aria-pressed="false"></button>
+                  </div>
+                </fieldset>
+                <label class="slider-row" for="annotationStrokeWidth">
+                  <span class="slider-heading"><span>線の太さ</span><output id="annotationStrokeValue">8 px</output></span>
+                  <span class="range-wrap"><span class="range-caption">細</span><input id="annotationStrokeWidth" type="range" min="2" max="30" value="8"><span class="range-caption">太</span></span>
+                </label>
+              </div>
+            </section>
+          </div>
+
+          <div class="action-row">
+            <div class="history-block" role="group" aria-label="編集履歴">
+              <button id="undo" class="icon-button" type="button" disabled><span aria-hidden="true">↶</span>Undo</button>
+              <button id="redo" class="icon-button" type="button" disabled><span aria-hidden="true">↷</span>Redo</button>
             </div>
-          </div>
 
-          <div class="sliders-block">
-            <label class="slider-row" for="mosaicSize">
-              <span class="slider-heading"><span>モザイク強度</span><output id="mosaicValue">20 px</output></span>
-              <span class="range-wrap"><span class="range-caption">細かい</span><input id="mosaicSize" type="range" min="4" max="50" value="20"><span class="range-caption">粗い</span></span>
-            </label>
-            <label id="brushSizeRow" class="slider-row is-muted" for="brushSize">
-              <span class="slider-heading"><span>ブラシサイズ</span><output id="brushValue">80 px</output></span>
-              <span class="range-wrap"><span class="range-caption">小</span><input id="brushSize" type="range" min="12" max="300" value="80" disabled><span class="range-caption">大</span></span>
-            </label>
-          </div>
-
-          <div class="history-block" role="group" aria-label="編集履歴">
-            <button id="undo" class="icon-button" type="button" disabled><span aria-hidden="true">↶</span>Undo</button>
-            <button id="redo" class="icon-button" type="button" disabled><span aria-hidden="true">↷</span>Redo</button>
-          </div>
-
-          <div class="file-actions">
-            <button id="openAnother" class="button button-secondary" type="button">別の画像を開く</button>
-            <button id="saveImage" class="button button-save" type="button" disabled>画像を保存</button>
+            <div class="file-actions">
+              <button id="openAnother" class="button button-secondary" type="button">別の画像を開く</button>
+              <button id="saveImage" class="button button-save" type="button" disabled>画像を保存</button>
+            </div>
           </div>
         </section>
 
@@ -100,6 +136,6 @@
     </div>
 
     <input id="fileInput" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp">
-    <script type="module" src="js/app.js"></script>
+    <script type="module" src="js/app.js?v=2"></script>
   </body>
 </html>
