@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+    >
+    <meta name="description" content="画像をアップロードせず、ブラウザ内だけでモザイク加工できるツール">
+    <meta name="theme-color" content="#f5f7fb">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23192439'/%3E%3Cpath fill='%23fff' d='M7 7h8v8H7zm10 0h8v8h-8zM7 17h8v8H7z'/%3E%3Cpath fill='%234d7cff' d='M17 17h8v8h-8z'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="css/style.css">
+    <title>Local Mosaic</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand" aria-label="Local Mosaic">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span>Local Mosaic</span>
+        </div>
+        <div class="privacy-note">
+          <span class="privacy-icon" aria-hidden="true">✓</span>
+          <span><strong>画像はサーバーへ送信されません。</strong>すべての処理はこのブラウザ内で行われます。</span>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section id="stage" class="stage" aria-label="画像編集エリア">
+          <div id="dropZone" class="drop-zone">
+            <div class="drop-visual" aria-hidden="true">
+              <span class="image-glyph"></span>
+              <span class="plus-glyph">＋</span>
+            </div>
+            <h1>画像をここへドロップ</h1>
+            <p>または、お使いの端末から画像を選択</p>
+            <button id="openInitial" class="button button-primary" type="button">画像を開く</button>
+            <p class="file-types">JPEG / PNG / WebP</p>
+          </div>
+
+          <div id="editorView" class="editor-view" hidden>
+            <canvas id="editorCanvas" aria-label="モザイク編集キャンバス"></canvas>
+            <div class="zoom-controls" aria-label="ズーム操作">
+              <button id="zoomOut" type="button" aria-label="縮小">−</button>
+              <output id="zoomValue" aria-live="polite">100%</output>
+              <button id="zoomIn" type="button" aria-label="拡大">＋</button>
+              <button id="zoomReset" class="fit-button" type="button" aria-label="画面に合わせる">全体</button>
+            </div>
+            <p class="canvas-hint"><kbd>Space</kbd>＋ドラッグで移動・ホイールで拡大縮小</p>
+          </div>
+
+          <div id="loading" class="loading" hidden role="status">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>画像を読み込んでいます…</span>
+          </div>
+        </section>
+
+        <section class="control-panel" aria-label="編集ツール">
+          <div class="tools-block">
+            <span class="group-label">ツール</span>
+            <div class="segmented" role="group" aria-label="編集ツールを選択">
+              <button class="tool-button is-active" type="button" data-tool="rectangle" aria-pressed="true">
+                <span class="rect-icon" aria-hidden="true"></span>矩形
+              </button>
+              <button class="tool-button" type="button" data-tool="brush" aria-pressed="false">
+                <span class="brush-icon" aria-hidden="true"></span>ブラシ
+              </button>
+            </div>
+          </div>
+
+          <div class="sliders-block">
+            <label class="slider-row" for="mosaicSize">
+              <span class="slider-heading"><span>モザイク強度</span><output id="mosaicValue">20 px</output></span>
+              <span class="range-wrap"><span class="range-caption">細かい</span><input id="mosaicSize" type="range" min="4" max="50" value="20"><span class="range-caption">粗い</span></span>
+            </label>
+            <label id="brushSizeRow" class="slider-row is-muted" for="brushSize">
+              <span class="slider-heading"><span>ブラシサイズ</span><output id="brushValue">80 px</output></span>
+              <span class="range-wrap"><span class="range-caption">小</span><input id="brushSize" type="range" min="12" max="300" value="80" disabled><span class="range-caption">大</span></span>
+            </label>
+          </div>
+
+          <div class="history-block" role="group" aria-label="編集履歴">
+            <button id="undo" class="icon-button" type="button" disabled><span aria-hidden="true">↶</span>Undo</button>
+            <button id="redo" class="icon-button" type="button" disabled><span aria-hidden="true">↷</span>Redo</button>
+          </div>
+
+          <div class="file-actions">
+            <button id="openAnother" class="button button-secondary" type="button">別の画像を開く</button>
+            <button id="saveImage" class="button button-save" type="button" disabled>画像を保存</button>
+          </div>
+        </section>
+
+        <div id="message" class="message" role="alert" hidden></div>
+      </main>
+
+      <footer>
+        <span>ローカル処理のみ</span><span aria-hidden="true">•</span><span>画像データは保存されません</span>
+      </footer>
+    </div>
+
+    <input id="fileInput" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp">
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
