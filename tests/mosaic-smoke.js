@@ -100,6 +100,28 @@ try {
   assert(editor.hoverPointer === null, "タッチ操作ではブラシカーソルを表示しない");
   editorCanvas.dispatchEvent(new PointerEvent("pointermove", { pointerType: "mouse", clientX: editorRect.left, clientY: editorRect.top }));
   assert(editor.hoverPointer === null, "画像領域外ではブラシカーソルを表示しない");
+
+  editor.state.operations = [
+    { type: "rectangleMosaic", x: 1, y: 2, width: 30, height: 20, blockSize: 20 },
+    { type: "brushMosaic", points: [{ x: 10, y: 10 }], brushSize: 55, blockSize: 20 },
+  ];
+  editor.state.redoStack = [
+    { type: "brushMosaic", points: [{ x: 20, y: 20 }], brushSize: 65, blockSize: 20 },
+  ];
+  editor.activeDraft = { type: "brushMosaic", points: [{ x: 30, y: 30 }], brushSize: 75, blockSize: 20 };
+  let renderRequests = 0;
+  editor.requestRender = () => { renderRequests += 1; };
+  editor.setMosaicSize("40");
+  assert(editor.state.mosaicSize === 40, "新しいモザイク強度を状態へ設定する");
+  assert(editor.state.operations.every((operation) => operation.blockSize === 40), "確定済みの矩形・ブラシへ最新強度を反映する");
+  assert(editor.state.redoStack.every((operation) => operation.blockSize === 40), "Redo待ちのモザイクへ最新強度を反映する");
+  assert(editor.activeDraft.blockSize === 40, "描画中のブラシへ最新強度を反映する");
+  assert(editor.state.operations[1].brushSize === 55 && editor.state.redoStack[0].brushSize === 65 && editor.activeDraft.brushSize === 75, "既存ブラシのサイズを変更しない");
+  assert(renderRequests === 1, "強度変更後に再描画を要求する");
+  editor.activeDraft = null;
+  editor.redo();
+  assert(editor.state.operations.at(-1).blockSize === 40, "Redo後も最新のモザイク強度を維持する");
+
   const previewHeading = document.createElement("h2");
   previewHeading.textContent = "Brush cursor preview";
   editorHost.before(previewHeading);

@@ -66,7 +66,20 @@ export class MosaicEditor {
     this.notifyState();
   }
 
-  setMosaicSize(value) { this.state.mosaicSize = Number(value); }
+  setMosaicSize(value) {
+    const blockSize = Number(value);
+    this.state.mosaicSize = blockSize;
+
+    for (const operation of this.state.operations) {
+      if (operation.type === "rectangleMosaic" || operation.type === "brushMosaic") operation.blockSize = blockSize;
+    }
+    for (const operation of this.state.redoStack) {
+      if (operation.type === "rectangleMosaic" || operation.type === "brushMosaic") operation.blockSize = blockSize;
+    }
+    if (this.activeDraft?.type === "brushMosaic") this.activeDraft.blockSize = blockSize;
+
+    this.requestRender();
+  }
   setBrushSize(value) { this.state.brushSize = Number(value); this.requestRender(); }
 
   undo() {
