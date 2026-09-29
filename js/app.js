@@ -1,7 +1,6 @@
 import { MosaicEditor } from "./editor.js?v=3";
 import { exportImage } from "./export.js?v=3";
 
-const SUPPORTED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const elements = Object.fromEntries([
   "stage", "dropZone", "editorView", "editorCanvas", "openInitial", "openAnother", "fileInput",
   "loading", "message", "mosaicSize", "mosaicValue", "brushSize", "brushValue", "brushSizeRow",
@@ -61,7 +60,7 @@ async function decodeImage(file) {
 
 async function loadFile(file) {
   if (!file) return;
-  if (!SUPPORTED_TYPES.has(file.type)) {
+  if (!file.type.startsWith("image/")) {
     showMessage("この画像形式には対応していません。JPEG、PNG、WebP形式の画像を選択してください。");
     return;
   }
@@ -88,6 +87,12 @@ function requestFile() {
   elements.fileInput.click();
 }
 
+function isTextPasteTarget(target) {
+  if (!(target instanceof Element)) return false;
+  if (target.closest('textarea, input:not([type]), input[type="text"], input[type="search"], input[type="email"], input[type="url"], input[type="tel"], input[type="password"], input[type="number"]')) return true;
+  return Boolean(target.closest("[contenteditable]")?.isContentEditable);
+}
+
 elements.openInitial.addEventListener("click", requestFile);
 elements.openAnother.addEventListener("click", requestFile);
 elements.fileInput.addEventListener("change", () => loadFile(elements.fileInput.files[0]));
@@ -108,6 +113,18 @@ elements.stage.addEventListener("drop", (event) => {
   const file = [...event.dataTransfer.files].find((item) => item.type.startsWith("image/")) || event.dataTransfer.files[0];
   if (editor.state.operations.length > 0 && !window.confirm("現在の編集内容を破棄して、別の画像を開きますか？")) return;
   loadFile(file);
+});
+
+window.addEventListener("paste", (event) => {
+  if (isTextPasteTarget(event.target)) return;
+  const clipboard = event.clipboardData;
+  if (!clipboard) return;
+  const imageItem = Array.from(clipboard.items).find((item) => item.kind === "file" && item.type.startsWith("image/"));
+  const image = imageItem?.getAsFile() || Array.from(clipboard.files).find((file) => file.type.startsWith("image/"));
+  if (!image) return;
+  event.preventDefault();
+  if (editor.state.operations.length > 0 && !window.confirm("現在の編集内容を破棄して、クリップボードの画像を開きますか？")) return;
+  loadFile(image);
 });
 
 document.querySelectorAll("[data-tool]").forEach((button) => {
@@ -162,7 +179,7 @@ elements.saveImage.addEventListener("click", async () => {
   elements.saveImage.disabled = true;
   elements.saveImage.textContent = "保存中…";
   try {
-    await exportImage(editor.state, currentFile.name, currentFile.type);
+    await exportImage(editor.state, currentFile.name || "clipboard-image", currentFile.type);
     showMessage("元の解像度で画像を保存しました。", true);
   } catch (error) {
     const likelyMemoryError = error instanceof RangeError || /memory|allocation/i.test(error?.message || "");
