@@ -1,5 +1,5 @@
 import { renderOperations } from "../js/mosaic.js";
-import { buildOutputName } from "../js/export.js";
+import { buildOutputName, exportImage } from "../js/export.js";
 import { MosaicEditor } from "../js/editor.js";
 
 const result = document.getElementById("result");
@@ -198,6 +198,86 @@ try {
   editor.activeDraft = null;
   editor.redo();
   assert(editor.state.operations.at(-1).strokeWidth === 20, "Redo後も最新の注釈線幅を維持する");
+
+  editor.setImage(source);
+  editor.setTool("rectangle");
+  const selectionTransform = { scale: 3, offsetX: 10, offsetY: 20 };
+  const selectionRects = [];
+  const selectionFills = [];
+  let selectionDash;
+  const selectionContext = {
+    save() {}, restore() {},
+    setLineDash(value) { selectionDash = value; },
+    strokeRect(...args) { selectionRects.push(args); },
+    fillRect(...args) { selectionFills.push(args); },
+  };
+  const checkSelection = (expected, description, draft = false) => {
+    selectionRects.length = 0;
+    selectionFills.length = 0;
+    editor.renderOverlay(selectionContext, selectionTransform, 2);
+    assert(expected
+      ? selectionRects.length === 1 && selectionRects[0].every((value, index) => Math.abs(value - expected[index]) < 0.01)
+      : selectionRects.length === 0, description);
+    assert(selectionFills.length === (draft ? 1 : 0), `${description}：半透明背景はドラッグ中だけ表示する`);
+  };
+  const firstSelection = [70, 50, 180, 90];
+  editor.onPointerDown({ pointerId: 9, button: 0, pointerType: "mouse", ...clientPoint(80, 40) });
+  editor.onPointerMove({ pointerId: 9, pointerType: "mouse", ...clientPoint(20, 10) });
+  checkSelection(firstSelection, "逆方向のドラッグ中も範囲を表示する", true);
+  editor.onPointerUp({ pointerId: 9, pointerType: "mouse", ...clientPoint(20, 10) });
+  assert(editor.activeDraft === null, "矩形確定時にドラフトを終了する");
+  checkSelection(firstSelection, "確定後も同じ矩形の枠を表示する");
+  assert(selectionDash[0] === 14 && selectionDash[1] === 10 && selectionContext.lineWidth === 4 && selectionContext.strokeStyle === "#6f95ff", "確定後も既存の破線デザインとHiDPI線幅を使用する");
+
+  const secondSelection = [310, 80, 180, 150];
+  editor.onPointerDown({ pointerId: 10, button: 0, pointerType: "touch", ...clientPoint(100, 20) });
+  editor.onPointerMove({ pointerId: 10, pointerType: "touch", ...clientPoint(160, 70) });
+  checkSelection(secondSelection, "新しいドラッグ中は新しい矩形だけを表示する", true);
+  editor.onPointerUp({ pointerId: 10, pointerType: "touch", ...clientPoint(160, 70) });
+  checkSelection(secondSelection, "タッチで確定後も最新の矩形だけを表示する");
+  editor.commit({ type: "brushMosaic", points: [{ x: 90, y: 50 }], brushSize: 10, blockSize: 20 });
+  editor.commit({ type: "ellipseAnnotation", x: 30, y: 20, width: 40, height: 30, color: "#e53935", strokeWidth: 4 });
+  checkSelection(secondSelection, "ブラシや注釈を追加しても最新の矩形だけを表示する");
+  editor.undo();
+  editor.undo();
+  editor.undo();
+  checkSelection(firstSelection, "最新の矩形をUndoすると前の矩形へ枠を移す");
+  editor.undo();
+  checkSelection(null, "矩形がなくなると枠を表示しない");
+  editor.redo();
+  checkSelection(firstSelection, "Redoで復元した矩形へ枠を表示する");
+  editor.redo();
+  checkSelection(secondSelection, "Redoで最新の矩形へ枠を移す");
+
+  const expectedOutput = document.createElement("canvas");
+  expectedOutput.width = source.width;
+  expectedOutput.height = source.height;
+  const expectedContext = expectedOutput.getContext("2d");
+  expectedContext.drawImage(source, 0, 0);
+  renderOperations(expectedContext, expectedOutput, editor.state.operations, { scale: 1, offsetX: 0, offsetY: 0, imageWidth: source.width, imageHeight: source.height });
+  let outputBlob;
+  const originalCreateObjectURL = URL.createObjectURL;
+  const originalAnchorClick = HTMLAnchorElement.prototype.click;
+  try {
+    URL.createObjectURL = (blob) => { outputBlob = blob; return originalCreateObjectURL.call(URL, blob); };
+    HTMLAnchorElement.prototype.click = () => {};
+    await exportImage(editor.state, "selection.png", "image/png");
+  } finally {
+    URL.createObjectURL = originalCreateObjectURL;
+    HTMLAnchorElement.prototype.click = originalAnchorClick;
+  }
+  const outputImage = await createImageBitmap(outputBlob);
+  assert(outputImage.width === source.width && outputImage.height === source.height, "選択枠表示中も保存画像の元解像度を維持する");
+  const expectedPixels = expectedContext.getImageData(0, 0, source.width, source.height).data;
+  expectedContext.clearRect(0, 0, source.width, source.height);
+  expectedContext.drawImage(outputImage, 0, 0);
+  const outputPixels = expectedContext.getImageData(0, 0, source.width, source.height).data;
+  assert(expectedPixels.every((value, index) => value === outputPixels[index]), "保存PNGはモザイク描画のみと全画素が一致し選択枠を含まない");
+  outputImage.close();
+  editor.setImage(source);
+  checkSelection(null, "画像読み込みで枠を解除する");
+  editor.commit({ type: "brushMosaic", points: [{ x: 50, y: 50 }], brushSize: 10, blockSize: 20 });
+  checkSelection(null, "ブラシだけの場合は選択枠を表示しない");
 
   const previewHeading = document.createElement("h2");
   previewHeading.textContent = "Brush cursor preview";

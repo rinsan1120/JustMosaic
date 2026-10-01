@@ -245,18 +245,30 @@ export class MosaicEditor {
   }
 
   renderOverlay(ctx, transform, ratio) {
-    if (this.activeDraft?.type === "rectangleDraft") {
+    const isRectangleDraft = this.activeDraft?.type === "rectangleDraft";
+    let rectangle = null;
+    if (isRectangleDraft) {
       const { start, end } = this.activeDraft;
-      const x = transform.offsetX + Math.min(start.x, end.x) * transform.scale;
-      const y = transform.offsetY + Math.min(start.y, end.y) * transform.scale;
-      const width = Math.abs(end.x - start.x) * transform.scale;
-      const height = Math.abs(end.y - start.y) * transform.scale;
+      rectangle = { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), width: Math.abs(end.x - start.x), height: Math.abs(end.y - start.y) };
+    } else {
+      for (let i = this.state.operations.length - 1; i >= 0; i -= 1) {
+        if (this.state.operations[i].type === "rectangleMosaic") {
+          rectangle = this.state.operations[i];
+          break;
+        }
+      }
+    }
+    if (rectangle) {
+      const x = transform.offsetX + rectangle.x * transform.scale;
+      const y = transform.offsetY + rectangle.y * transform.scale;
+      const width = rectangle.width * transform.scale;
+      const height = rectangle.height * transform.scale;
       ctx.save();
       ctx.fillStyle = "rgba(76, 124, 255, .14)";
       ctx.strokeStyle = "#6f95ff";
       ctx.lineWidth = 2 * ratio;
       ctx.setLineDash([7 * ratio, 5 * ratio]);
-      ctx.fillRect(x, y, width, height);
+      if (isRectangleDraft) ctx.fillRect(x, y, width, height);
       ctx.strokeRect(x, y, width, height);
       ctx.restore();
     }
