@@ -1,9 +1,11 @@
-import { bounds, handles, contains, editObject } from "./objects.js?v=5";
-import { renderOperations, resolveOperations } from "./mosaic.js?v=5";
+import { bounds, handles, contains, editObject } from "./objects.js?v=6";
+import { renderOperations, resolveOperations } from "./mosaic.js?v=6";
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
 const ZOOM_STEP = 1.25;
+const DRAW_HOLD_MS = 450;
+const DRAG_THRESHOLD = 4;
 
 export class MosaicEditor {
   constructor(canvas, callbacks = {}) {
@@ -27,6 +29,7 @@ export class MosaicEditor {
     };
     this.fitScale = 1;
     this.activeDraft = null;
+    this.drawHoldTimer = null;
     this.hoverPointer = null;
     this.pointers = new Map();
     this.pinch = null;
@@ -42,6 +45,7 @@ export class MosaicEditor {
   get displayScale() { return this.fitScale * this.state.zoom; }
 
   setImage(image) {
+    this.cancelDrawHold();
     this.activeDraft = null;
     this.selectedIndex = null;
     this.state.sourceImage = image;
@@ -54,6 +58,7 @@ export class MosaicEditor {
   }
 
   clearImage() {
+    this.cancelDrawHold();
     this.selectedIndex = null;
     this.state.sourceImage = null;
     this.state.operations = [];
@@ -65,6 +70,7 @@ export class MosaicEditor {
   }
 
   setTool(tool) {
+    this.cancelDrawHold();
     this.activeDraft = null;
     this.selectedIndex = null;
     this.state.tool = tool;
@@ -130,6 +136,8 @@ export class MosaicEditor {
   }
 
   undo() {
+    this.cancelDrawHold();
+    this.activeDraft = null;
     this.selectedIndex = null;
     const operation = this.state.operations.pop();
     if (!operation) return;
@@ -139,6 +147,8 @@ export class MosaicEditor {
   }
 
   redo() {
+    this.cancelDrawHold();
+    this.activeDraft = null;
     this.selectedIndex = null;
     const operation = this.state.redoStack.pop();
     if (!operation) return;
@@ -204,7 +214,9 @@ export class MosaicEditor {
       x = Math.max(0, Math.min(this.state.imageWidth, x));
       y = Math.max(0, Math.min(this.state.imageHeight, y));
     }
-    return { x, y };
+    // Canvas clipping uses floor/ceil: floating point noise at an integer boundary
+    // must not change the sampled mosaic region between devices or exports.
+    return { x: Math.round(x * 1e6) / 1e6, y: Math.round(y * 1e6) / 1e6 };
   }
 
   isInside(point) {
@@ -310,7 +322,7 @@ export class MosaicEditor {
         if (isRectangleDraft) ctx.fillRect(x, y, width, height);
         ctx.strokeRect(x, y, width, height);
       }
-      if (!isRectangleDraft && this.state.tool === "select") {
+      if (!isRectangleDraft) {
         ctx.setLineDash([]);
         for (const handle of handles(rectangle)) {
           const hx = transform.offsetX + handle.x * transform.scale;
@@ -350,6 +362,7 @@ export class MosaicEditor {
   }
 
   bindEvents() {
+    this.canvas.addEventListener("contextmenu", event => event.preventDefault());
     this.canvas.addEventListener("pointerdown", (event) => this.onPointerDown(event));
     this.canvas.addEventListener("pointermove", (event) => this.onPointerMove(event));
     this.canvas.addEventListener("pointerenter", (event) => this.updateHoverPointer(event));
@@ -367,6 +380,7 @@ export class MosaicEditor {
   }
 
   onPointerDown(event) {
+    this.cancelDrawHold();
     if (!this.hasImage) return;
     this.updateHoverPointer(event);
     this.canvas.setPointerCapture(event.pointerId);
@@ -395,7 +409,7 @@ export class MosaicEditor {
     if (event.button !== 0) return;
     const point = this.imagePoint(event.clientX, event.clientY);
     if (!this.isInside(point)) return;
-    if (this.state.tool === "select") {
+    if (!event.altKey) {
       const operations = resolveOperations(this.state.operations);
       const tolerance = (event.pointerType === "touch" ? 22 : 10) / this.displayScale;
       const selected = operations[this.selectedIndex];
@@ -405,10 +419,30 @@ export class MosaicEditor {
         .sort((a, b) => Number(operations[b].type.endsWith("Annotation")) - Number(operations[a].type.endsWith("Annotation")) || b - a);
       const index = handle ? this.selectedIndex : indices.find(i => contains(operations[i], point, tolerance));
       this.selectedIndex = index ?? null;
-      if (index != null) this.activeDraft = { type: "shapeEditDraft", target: index, start: point, original: operations[index], operation: operations[index], handle: handle?.id };
-      this.requestRender();
-      return;
+      if (index != null) {
+        this.activeDraft = { type: "shapeEditDraft", target: index, start: point, original: operations[index], operation: operations[index], handle: handle?.id };
+        if (!handle) {
+          const draft = this.activeDraft;
+          this.drawHoldTimer = setTimeout(() => {
+            this.drawHoldTimer = null;
+            if (this.activeDraft === draft && this.pointers.size === 1) this.beginDrawing(point);
+          }, DRAW_HOLD_MS);
+        }
+        this.requestRender();
+        return;
+      }
     }
+    this.beginDrawing(point);
+  }
+
+  cancelDrawHold() {
+    clearTimeout(this.drawHoldTimer);
+    this.drawHoldTimer = null;
+  }
+
+  beginDrawing(point) {
+    this.cancelDrawHold();
+    this.selectedIndex = null;
     if (this.state.tool === "ellipseMosaic") this.activeDraft = { type: "ellipseMosaicDraft", start: point, end: point };
     else if (this.state.tool === "rectangle") this.activeDraft = { type: "rectangleDraft", start: point, end: point };
     else if (this.state.tool === "brush") this.activeDraft = { type: "brushMosaic", points: [point], brushSize: this.state.brushSize, blockSize: this.state.mosaicSize };
@@ -457,6 +491,11 @@ export class MosaicEditor {
     const point = this.imagePoint(event.clientX, event.clientY, true);
     if (this.activeDraft.type === "shapeEditDraft") {
       const { original, start, handle } = this.activeDraft;
+      if (!handle && !this.activeDraft.moved) {
+        if (Math.hypot(point.x - start.x, point.y - start.y) * this.displayScale < DRAG_THRESHOLD) return;
+        this.activeDraft.moved = true;
+        this.cancelDrawHold();
+      }
       this.activeDraft.operation = editObject(original, start, point, handle, this.state.imageWidth, this.state.imageHeight);
     } else if (this.activeDraft.type === "ellipseMosaicDraft" || this.activeDraft.type === "rectangleAnnotationDraft" || this.activeDraft.type === "rectangleDraft" || this.activeDraft.type === "arrowDraft" || this.activeDraft.type === "ellipseDraft") this.activeDraft.end = point;
     else {
@@ -469,6 +508,7 @@ export class MosaicEditor {
 
   onPointerUp(event, cancelled = false) {
     if (!this.pointers.has(event.pointerId)) return;
+    this.cancelDrawHold();
     this.pointers.delete(event.pointerId);
     if (this.pointers.size < 2) this.pinch = null;
     if (this.panStart) {

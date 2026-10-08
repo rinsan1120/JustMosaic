@@ -1,5 +1,5 @@
-import { MosaicEditor } from "./editor.js?v=5";
-import { exportImage } from "./export.js?v=5";
+import { MosaicEditor } from "./editor.js?v=6";
+import { exportImage } from "./export.js?v=6";
 
 const elements = Object.fromEntries([
   "stage", "dropZone", "editorView", "editorCanvas", "openInitial", "openAnother", "fileInput",

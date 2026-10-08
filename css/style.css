@@ -101,7 +101,7 @@ button:focus-visible, input:focus-visible {
 .zoom-controls output { min-width: 60px; color: var(--muted); font-size: .8rem; }
 .zoom-controls .fit-button { width: 52px; border-right: 0; font-size: .8rem; }
 
-.canvas-hint { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); margin: 0; padding: 5px 10px; color: #e8edf7; background: rgba(20,27,42,.72); border-radius: 6px; font-size: .75rem; pointer-events: none; white-space: nowrap; }
+.canvas-hint { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); margin: 0; padding: 5px 10px; color: #e8edf7; background: rgba(20,27,42,.72); border-radius: 6px; font-size: .75rem; pointer-events: none; white-space: nowrap; text-align: center; }
 kbd { font: inherit; color: #fff; }
 
 .loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 12px; background: rgba(245,247,251,.86); font-weight: 650; }
@@ -196,7 +196,7 @@ button:disabled { cursor: not-allowed; opacity: .38; }
   .file-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .button { padding: 0 10px; }
   .file-actions .button { min-width: 0; padding: 0 8px; font-size: .875rem; }
-  .canvas-hint { display: none; }
+  .canvas-hint { display: block; bottom: 54px; width: calc(100% - 24px); white-space: normal; font-size: .68rem; }
   .zoom-controls { top: auto; right: 8px; bottom: 8px; }
 }
 
@@ -206,5 +206,3 @@ button:disabled { cursor: not-allowed; opacity: .38; }
 }
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; animation-duration: .01ms !important; } }
-
-.editor-tools > [data-tool="select"] { grid-column: 1 / -1; justify-self: start; }

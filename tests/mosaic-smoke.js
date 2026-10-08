@@ -1,4 +1,4 @@
-import { DRAWING_TOOLS, bounds, handles } from "../js/objects.js";
+import { DRAWING_TOOLS, bounds, handles, contains } from "../js/objects.js";
 import { renderOperations, resolveOperations } from "../js/mosaic.js";
 import { buildOutputName, exportImage } from "../js/export.js";
 import { MosaicEditor } from "../js/editor.js";
@@ -132,9 +132,10 @@ try {
   editorCanvas.dispatchEvent(new PointerEvent("pointermove", { pointerType: "mouse", clientX: editorRect.left, clientY: editorRect.top }));
   assert(editor.hoverPointer === null, "画像領域外ではブラシカーソルを表示しない");
 
+  // Deliberate subpixel noise reproduces the CI brush export integer-boundary regression.
   const clientPoint = (x, y) => ({
-    clientX: editorRect.left + editor.state.offsetX + x * editor.displayScale,
-    clientY: editorRect.top + editor.state.offsetY + y * editor.displayScale,
+    clientX: editorRect.left + editor.state.offsetX + x * editor.displayScale + 1e-10,
+    clientY: editorRect.top + editor.state.offsetY + y * editor.displayScale - 1e-10,
   });
   editor.canvas.setPointerCapture = () => {};
   editor.setTool("arrow");
@@ -147,7 +148,7 @@ try {
   assert(arrowOperation.type === "arrowAnnotation" && arrowOperation.color === "#16a34a" && arrowOperation.strokeWidth === 12, "矢印を色・線幅付きで履歴へ確定する");
 
   editor.setTool("ellipse");
-  editor.onPointerDown({ pointerId: 8, button: 0, pointerType: "mouse", ...clientPoint(30, 15) });
+  editor.onPointerDown({ pointerId: 8, button: 0, altKey: true, pointerType: "mouse", ...clientPoint(30, 15) });
   editor.onPointerMove({ pointerId: 8, pointerType: "mouse", ...clientPoint(140, 75) });
   editor.onPointerUp({ pointerId: 8, pointerType: "mouse", ...clientPoint(140, 75) });
   const ellipseOperation = editor.state.operations.at(-1);
@@ -246,19 +247,21 @@ try {
     const original = resolveOperations(editor.state.operations)[0];
     const expectedOriginal = fixtures[tool];
     assert(original.type === descriptor.type && equivalent(original, expectedOriginal), `${tool}/${pointerType}: 作成座標と設定`);
-    editor.setTool("select");
+    assert(editor.selectedIndex === 0, `${tool}/${pointerType}: 描画直後は選択状態`);
     drag({ x: 55, y: 35 }, { x: 95, y: 45 }, pointerType);
-    assert(editor.selectedIndex === 0, `${tool}/${pointerType}: 選択`);
+    assert(editor.selectedIndex === 0 && editor.state.tool === tool, `${tool}/${pointerType}: 同じツールのまま直接ドラッグで移動`);
     const moved = tool === "brush" ? { ...expectedOriginal, points: expectedOriginal.points.map(p => ({ x: p.x + 40, y: p.y + 10 })) }
       : tool === "arrow" ? { ...expectedOriginal, x1: 65, y1: 25, x2: 125, y2: 65 }
       : { ...expectedOriginal, x: 65, y: 25 };
     const actual = resolveOperations(editor.state.operations)[0];
+    assert(equivalent(actual, moved), `${tool}/${pointerType}: 全座標と設定を保持`);
     assert(near(bounds(actual).x, bounds(moved).x) && near(bounds(actual).y, bounds(moved).y), `${tool}/${pointerType}: 移動座標`);
     if (tool === "brush") assert(actual.points.every((p, i) => near(p.x, moved.points[i].x) && near(p.y, moved.points[i].y)), "ブラシ全軌跡を移動");
     if (tool === "arrow") assert(near(actual.x2, moved.x2) && near(actual.y2, moved.y2), "矢印両端点を移動");
     assert(actual.color === original.color && actual.strokeWidth === original.strokeWidth, "編集で色・線幅を保持");
     editor.undo(); assert(JSON.stringify(resolveOperations(editor.state.operations)[0]) === JSON.stringify(original), `${tool}: 移動Undo`);
     editor.redo(); assert(JSON.stringify(resolveOperations(editor.state.operations)[0]) === JSON.stringify(actual), `${tool}: 移動Redo`);
+    await checkExport(pixelsFor(editor.state.operations), `${tool}/${pointerType}: 履歴と保存PNGの全画素一致`);
     await checkExport(pixelsFor([moved]), `${tool}/${pointerType}: 保存PNGへ移動を反映し選択枠を除外`);
     const movedPixels = pixelsFor([moved]);
     assert(pixelsFor([original]).some((v, i) => v !== movedPixels[i]), `${tool}: 移動前後で保存画素が変わる`);
@@ -284,15 +287,14 @@ try {
   }
   editor.setImage(source);
   editor.commit(fixtures.rectangleAnnotation); editor.commit(fixtures.rectangle);
-  editor.setTool("select"); drag({ x: 55, y: 35 }, { x: 55, y: 35 });
+  editor.setTool("rectangle"); drag({ x: 55, y: 35 }, { x: 55, y: 35 });
   assert(editor.selectedIndex === 0, "描画順に従いモザイクより前面の注釈を選択");
   editor.commit(fixtures.ellipse); drag({ x: 55, y: 35 }, { x: 55, y: 35 });
   assert(editor.selectedIndex === 2, "重なる注釈は最前面を選択");
   drag({ x: 180, y: 90 }, { x: 180, y: 90 });
   assert(editor.selectedIndex === null, "空白クリックで選択解除");
-  editor.setTool("rectangleAnnotation"); drag({ x: 40, y: 25 }, { x: 70, y: 45 });
-  assert(editor.state.operations.at(-1).type === "rectangleAnnotation", "描画モードは重なる新規図形を作成");
-  editor.setTool("select");
+  editor.setTool("rectangleAnnotation"); drag({ x: 10, y: 5 }, { x: 70, y: 45 });
+  assert(editor.state.operations.at(-1).type === "rectangleAnnotation", "空白からのドラッグで既存図形と重なる新規図形を作成");
   const length = editor.state.operations.length;
   editor.spacePressed = true; drag({ x: 55, y: 35 }, { x: 60, y: 40 }); editor.spacePressed = false;
   assert(editor.state.operations.length === length, "Spaceパンは編集履歴を変更しない");
@@ -307,6 +309,49 @@ try {
   drag({ x: 55, y: 35 }, { x: 65, y: 40 });
   const selectedAfterZoom = resolveOperations(editor.state.operations)[3];
   assert(near(selectedAfterZoom.x, selectedBeforeZoom.x + 10) && near(selectedAfterZoom.y, selectedBeforeZoom.y + 5), "ズーム後も元画像座標で移動");
+  // Overlap creation is a gesture, never a dedicated selection/drawing mode.
+  for (const pointerType of ["mouse", "touch"]) for (const [tool, descriptor] of Object.entries(DRAWING_TOOLS)) {
+    editor.setImage(source); editor.setTool(tool);
+    editor.commit(structuredClone(fixtures.rectangle));
+    const historyLength = editor.state.operations.length;
+    editor.onPointerDown({ pointerId: 20, button: 0, pointerType, ...clientPoint(55, 35) });
+    editor.onPointerMove({ pointerId: 20, pointerType, ...clientPoint(55.1, 35.1) });
+    await new Promise(resolve => setTimeout(resolve, 500));
+    assert(editor.activeDraft.type !== "shapeEditDraft", `${tool}/${pointerType}: 長押しで重ね描き開始`);
+    editor.onPointerMove({ pointerId: 20, pointerType, ...clientPoint(75, 45) });
+    editor.onPointerUp({ pointerId: 20, pointerType, ...clientPoint(75, 45) });
+    assert(editor.state.operations.length === historyLength + 1 && editor.state.operations.at(-1).type === descriptor.type && editor.selectedIndex === historyLength, `${tool}/${pointerType}: 同じツールのまま図形の内側にも新規作成`);
+    assert(editor.state.tool === tool, `${tool}/${pointerType}: 重ね描きでもツールを維持`);
+    editor.undo(); assert(editor.state.operations.length === historyLength, `${tool}: 重ね描きUndo`);
+    editor.redo(); assert(editor.state.operations.at(-1).type === descriptor.type, `${tool}: 重ね描きRedo`);
+  }
+  editor.setImage(source); editor.setTool("rectangle"); editor.commit(structuredClone(fixtures.rectangle));
+  editor.onPointerDown({ pointerId: 20, button: 0, pointerType: "mouse", altKey: true, ...clientPoint(55, 35) });
+  editor.onPointerMove({ pointerId: 20, pointerType: "mouse", ...clientPoint(75, 45) });
+  editor.onPointerUp({ pointerId: 20, pointerType: "mouse", ...clientPoint(75, 45) });
+  assert(editor.state.operations.at(-1).type === "rectangleMosaic", "Altドラッグでも重ね描きできる");
+  editor.setTool("brush");
+  const crossToolLength = editor.state.operations.length;
+  drag({ x: 40, y: 25 }, { x: 45, y: 30 });
+  assert(editor.state.operations.length === crossToolLength + 1 && editor.state.operations.at(-1).type === "shapeEdit", "異なる描画ツールでも既存図形の移動を優先");
+  editor.onPointerDown({ pointerId: 20, button: 0, pointerType: "touch", ...clientPoint(50, 35) });
+  editor.onPointerUp({ pointerId: 20, pointerType: "touch" }, true);
+  await new Promise(resolve => setTimeout(resolve, 500));
+  assert(editor.activeDraft === null && editor.drawHoldTimer === null, "キャンセル後に長押しが発火しない");
+  editor.onPointerDown({ pointerId: 20, button: 0, pointerType: "touch", ...clientPoint(50, 35) });
+  editor.setTool("arrow");
+  editor.onPointerUp({ pointerId: 20, pointerType: "touch" });
+  await new Promise(resolve => setTimeout(resolve, 500));
+  assert(editor.activeDraft === null && editor.drawHoldTimer === null, "ツール変更後に長押しが発火しない");
+  assert(contains(fixtures.rectangleAnnotation, { x: 55, y: 35 }, 0), "矩形注釈は内側も選択可能");
+  assert(contains(fixtures.ellipse, { x: 55, y: 35 }, 0), "丸囲み注釈は内側も選択可能");
+  assert(!contains(fixtures.brush, { x: 25, y: 55 }, 0), "ブラシは境界矩形の空白ではなく軌跡で選択");
+  assert(contains(fixtures.arrow, { x: 76, y: 59 }, 2), "矢尻の近傍を選択可能");
+  editor.setImage(source); editor.setTool("brush");
+  drag({ x: 25, y: 15 }, { x: 85, y: 55 });
+  drag({ x: 55, y: 35 }, { x: 95, y: 45 });
+  assert(resolveOperations(editor.state.operations)[0].points[0].x === 65 && resolveOperations(editor.state.operations)[0].points[0].y === 25, "微小なポインター誤差でブラシの切り出し座標を変えない");
+  await checkExport(pixelsFor([{ ...fixtures.brush, points: [{ x: 65, y: 25 }, { x: 125, y: 65 }] }]), "ブラシ保存の整数境界回帰：全画素一致");
   const shapeCanvas = document.createElement("canvas");
   shapeCanvas.width = 120; shapeCanvas.height = 80;
   const shapeContext = shapeCanvas.getContext("2d");
