@@ -10,7 +10,7 @@
     <meta name="description" content="画像をアップロードせず、ブラウザ内だけでモザイク加工できるツール">
     <meta name="theme-color" content="#f5f7fb">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23192439'/%3E%3Cpath fill='%23fff' d='M7 7h8v8H7zm10 0h8v8h-8zM7 17h8v8H7z'/%3E%3Cpath fill='%234d7cff' d='M17 17h8v8h-8z'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="css/style.css?v=3">
+    <link rel="stylesheet" href="css/style.css?v=4">
     <title>JustMosaic!</title>
   </head>
   <body>
@@ -68,6 +68,9 @@
                   <button class="tool-button is-active" type="button" data-tool="rectangle" aria-pressed="true">
                     <span class="rect-icon" aria-hidden="true"></span>矩形
                   </button>
+                  <button class="tool-button" type="button" data-tool="ellipseMosaic" aria-pressed="false">
+                    <span class="ellipse-icon" aria-hidden="true"></span>丸囲み
+                  </button>
                   <button class="tool-button" type="button" data-tool="brush" aria-pressed="false">
                     <span class="brush-icon" aria-hidden="true"></span>ブラシ
                   </button>
@@ -90,11 +93,14 @@
               <div class="tools-block">
                 <h2 id="annotationToolsLabel" class="group-label">注釈</h2>
                 <div class="segmented" role="group" aria-label="注釈ツールを選択">
-                  <button class="tool-button" type="button" data-tool="arrow" aria-pressed="false">
-                    <span class="arrow-icon" aria-hidden="true"></span>矢印
+                  <button class="tool-button" type="button" data-tool="rectangleAnnotation" aria-pressed="false">
+                    <span class="rect-icon" aria-hidden="true"></span>矩形
                   </button>
                   <button class="tool-button" type="button" data-tool="ellipse" aria-pressed="false">
                     <span class="ellipse-icon" aria-hidden="true"></span>丸囲み
+                  </button>
+                  <button class="tool-button" type="button" data-tool="arrow" aria-pressed="false">
+                    <span class="arrow-icon" aria-hidden="true"></span>矢印
                   </button>
                 </div>
               </div>

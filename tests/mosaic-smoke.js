@@ -1,4 +1,4 @@
-import { renderOperations } from "../js/mosaic.js";
+import { renderOperations, resolveOperations } from "../js/mosaic.js";
 import { buildOutputName, exportImage } from "../js/export.js";
 import { MosaicEditor } from "../js/editor.js";
 
@@ -248,6 +248,55 @@ try {
   checkSelection(firstSelection, "Redoで復元した矩形へ枠を表示する");
   editor.redo();
   checkSelection(secondSelection, "Redoで最新の矩形へ枠を移す");
+
+  // New tools share mouse/touch input, editable history, settings and export.
+  for (const [tool, type, pointerType] of [
+    ["ellipseMosaic", "ellipseMosaic", "mouse"],
+    ["rectangleAnnotation", "rectangleAnnotation", "touch"],
+  ]) {
+    editor.setTool(tool);
+    editor.onPointerDown({ pointerId: 20, button: 0, pointerType, ...clientPoint(25, 15) });
+    editor.onPointerMove({ pointerId: 20, pointerType, ...clientPoint(85, 55) });
+    editor.onPointerUp({ pointerId: 20, pointerType, ...clientPoint(85, 55) });
+    assert(editor.state.operations.at(-1).type === type, `${tool}: 新規図形を確定する`);
+    const target = editor.state.operations.length - 1;
+    editor.onPointerDown({ pointerId: 21, button: 0, pointerType, ...clientPoint(55, 35) });
+    editor.onPointerMove({ pointerId: 21, pointerType, ...clientPoint(65, 40) });
+    editor.onPointerUp({ pointerId: 21, pointerType, ...clientPoint(65, 40) });
+    assert(resolveOperations(editor.state.operations)[target].x === 35, `${tool}: 選択して移動する`);
+    editor.undo();
+    assert(resolveOperations(editor.state.operations)[target].x === 25, `${tool}: 移動をUndoする`);
+    editor.redo();
+    assert(resolveOperations(editor.state.operations)[target].x === 35, `${tool}: 移動をRedoする`);
+    editor.onPointerDown({ pointerId: 22, button: 0, pointerType, ...clientPoint(95, 60) });
+    editor.onPointerMove({ pointerId: 22, pointerType, ...clientPoint(105, 65) });
+    editor.onPointerUp({ pointerId: 22, pointerType, ...clientPoint(105, 65) });
+    const edited = resolveOperations(editor.state.operations)[target];
+    assert(Math.abs(edited.width - 70) < 0.01 && Math.abs(edited.height - 45) < 0.01, `${tool}: ハンドルでサイズ変更する`);
+    if (tool === "ellipseMosaic") {
+      editor.setMosaicSize(18);
+      assert(resolveOperations(editor.state.operations)[target].blockSize === 18, "編集後の丸囲みモザイクへ強度を反映する");
+    } else {
+      editor.setAnnotationStrokeWidth(6);
+      assert(resolveOperations(editor.state.operations)[target].strokeWidth === 6, "編集後の矩形注釈へ線幅を反映する");
+      editor.setAnnotationColor("#2563eb");
+      assert(resolveOperations(editor.state.operations)[target].color === "#2563eb", "選択した矩形注釈の色を変更する");
+    }
+  }
+  const shapeCanvas = document.createElement("canvas");
+  shapeCanvas.width = 120; shapeCanvas.height = 80;
+  const shapeContext = shapeCanvas.getContext("2d");
+  shapeContext.fillStyle = gradient;
+  shapeContext.fillRect(0, 0, 120, 80);
+  const corner = [...shapeContext.getImageData(31, 16, 1, 1).data];
+  const center = [...shapeContext.getImageData(50, 30, 1, 1).data];
+  renderOperations(shapeContext, shapeCanvas, [{ type: "ellipseMosaic", x: 30, y: 15, width: 60, height: 40, blockSize: 18 }], { scale: 1, offsetX: 0, offsetY: 0 });
+  assert(corner.every((v, i) => v === shapeContext.getImageData(31, 16, 1, 1).data[i]), "楕円の外側にある矩形の角を変更しない");
+  assert(center.some((v, i) => v !== shapeContext.getImageData(50, 30, 1, 1).data[i]), "楕円の内側だけモザイク化する");
+  const unfilled = [...shapeContext.getImageData(60, 35, 1, 1).data];
+  renderOperations(shapeContext, shapeCanvas, [{ type: "rectangleAnnotation", x: 30, y: 15, width: 60, height: 40, color: "#16a34a", strokeWidth: 4 }], { scale: 1, offsetX: 0, offsetY: 0 });
+  assert(unfilled.every((v, i) => v === shapeContext.getImageData(60, 35, 1, 1).data[i]), "矩形注釈の内側を塗りつぶさない");
+  assert(shapeContext.getImageData(30, 35, 1, 1).data[1] === 163, "矩形注釈の枠線を指定色で描画する");
 
   const expectedOutput = document.createElement("canvas");
   expectedOutput.width = source.width;

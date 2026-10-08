@@ -49,7 +49,9 @@ function applyRectangle(context, canvas, operation, transform) {
   const pixelated = createPixelatedRegion(canvas, bounds, operation.blockSize * transform.scale);
   context.save();
   context.beginPath();
-  context.rect(raw.x, raw.y, raw.width, raw.height);
+  if (operation.type === "ellipseMosaic") {
+    context.ellipse(raw.x + raw.width / 2, raw.y + raw.height / 2, raw.width / 2, raw.height / 2, 0, 0, Math.PI * 2);
+  } else context.rect(raw.x, raw.y, raw.width, raw.height);
   context.clip();
   context.drawImage(pixelated, bounds.x, bounds.y);
   context.restore();
@@ -150,19 +152,32 @@ function applyEllipse(context, operation, transform) {
   context.strokeStyle = operation.color;
   context.lineWidth = operation.strokeWidth * transform.scale;
   context.beginPath();
-  context.ellipse(centerX, centerY, operation.width * transform.scale / 2, operation.height * transform.scale / 2, 0, 0, Math.PI * 2);
+  if (operation.type === "rectangleAnnotation") {
+    context.rect(transform.offsetX + operation.x * transform.scale, transform.offsetY + operation.y * transform.scale, operation.width * transform.scale, operation.height * transform.scale);
+  } else context.ellipse(centerX, centerY, operation.width * transform.scale / 2, operation.height * transform.scale / 2, 0, 0, Math.PI * 2);
   context.stroke();
   context.restore();
 }
 
 function applyAnnotation(context, operation, transform) {
   if (operation.type === "arrowAnnotation") applyArrow(context, operation, transform);
-  if (operation.type === "ellipseAnnotation") applyEllipse(context, operation, transform);
+  if (operation.type === "ellipseAnnotation" || operation.type === "rectangleAnnotation") applyEllipse(context, operation, transform);
 }
 
-export function renderOperations(context, canvas, operations, transform) {
+// Edits remain individual history entries, so Undo restores the original geometry.
+export function resolveOperations(history) {
+  const operations = [];
+  history.forEach((operation, index) => {
+    if (operation.type === "shapeEdit") operations[operation.target] = operation.operation;
+    else operations[index] = operation;
+  });
+  return operations;
+}
+
+export function renderOperations(context, canvas, history, transform) {
+  const operations = resolveOperations(history).filter(Boolean);
   for (const operation of operations) {
-    if (operation.type === "rectangleMosaic") applyRectangle(context, canvas, operation, transform);
+    if (operation.type === "rectangleMosaic" || operation.type === "ellipseMosaic") applyRectangle(context, canvas, operation, transform);
     if (operation.type === "brushMosaic") applyBrush(context, canvas, operation, transform);
   }
   context.save();
