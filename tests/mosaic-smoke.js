@@ -1,3 +1,4 @@
+import { DRAWING_TOOLS, bounds, handles } from "../js/objects.js";
 import { renderOperations, resolveOperations } from "../js/mosaic.js";
 import { buildOutputName, exportImage } from "../js/export.js";
 import { MosaicEditor } from "../js/editor.js";
@@ -199,90 +200,113 @@ try {
   editor.redo();
   assert(editor.state.operations.at(-1).strokeWidth === 20, "Redo後も最新の注釈線幅を維持する");
 
-  editor.setImage(source);
-  editor.setTool("rectangle");
-  const selectionTransform = { scale: 3, offsetX: 10, offsetY: 20 };
-  const selectionRects = [];
-  const selectionFills = [];
-  let selectionDash;
-  const selectionContext = {
-    save() {}, restore() {},
-    setLineDash(value) { selectionDash = value; },
-    strokeRect(...args) { selectionRects.push(args); },
-    fillRect(...args) { selectionFills.push(args); },
+  const near = (a, b) => Math.abs(a - b) < 0.001;
+  const equivalent = (a, b) => typeof a === "number" ? near(a, b)
+    : a && typeof a === "object" ? Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(k => equivalent(a[k], b[k])) : a === b;
+  const drag = (start, end, pointerType = "mouse", cancel = false) => {
+    editor.onPointerDown({ pointerId: 20, button: 0, pointerType, ...clientPoint(start.x, start.y) });
+    editor.onPointerMove({ pointerId: 20, pointerType, ...clientPoint(end.x, end.y) });
+    editor.onPointerUp({ pointerId: 20, pointerType, ...clientPoint(end.x, end.y) }, cancel);
   };
-  const checkSelection = (expected, description, draft = false) => {
-    selectionRects.length = 0;
-    selectionFills.length = 0;
-    editor.renderOverlay(selectionContext, selectionTransform, 2);
-    assert(expected
-      ? selectionRects.length === 1 && selectionRects[0].every((value, index) => Math.abs(value - expected[index]) < 0.01)
-      : selectionRects.length === 0, description);
-    assert(selectionFills.length === (draft ? 1 : 0), `${description}：半透明背景はドラッグ中だけ表示する`);
+  const pixelsFor = history => {
+    const c = document.createElement("canvas"); c.width = source.width; c.height = source.height;
+    const ctx = c.getContext("2d"); ctx.drawImage(source, 0, 0);
+    renderOperations(ctx, c, history, { scale: 1, offsetX: 0, offsetY: 0, imageWidth: source.width, imageHeight: source.height });
+    return ctx.getImageData(0, 0, c.width, c.height).data;
   };
-  const firstSelection = [70, 50, 180, 90];
-  editor.onPointerDown({ pointerId: 9, button: 0, pointerType: "mouse", ...clientPoint(80, 40) });
-  editor.onPointerMove({ pointerId: 9, pointerType: "mouse", ...clientPoint(20, 10) });
-  checkSelection(firstSelection, "逆方向のドラッグ中も範囲を表示する", true);
-  editor.onPointerUp({ pointerId: 9, pointerType: "mouse", ...clientPoint(20, 10) });
-  assert(editor.activeDraft === null, "矩形確定時にドラフトを終了する");
-  checkSelection(firstSelection, "確定後も同じ矩形の枠を表示する");
-  assert(selectionDash[0] === 14 && selectionDash[1] === 10 && selectionContext.lineWidth === 4 && selectionContext.strokeStyle === "#6f95ff", "確定後も既存の破線デザインとHiDPI線幅を使用する");
-
-  const secondSelection = [310, 80, 180, 150];
-  editor.onPointerDown({ pointerId: 10, button: 0, pointerType: "touch", ...clientPoint(100, 20) });
-  editor.onPointerMove({ pointerId: 10, pointerType: "touch", ...clientPoint(160, 70) });
-  checkSelection(secondSelection, "新しいドラッグ中は新しい矩形だけを表示する", true);
-  editor.onPointerUp({ pointerId: 10, pointerType: "touch", ...clientPoint(160, 70) });
-  checkSelection(secondSelection, "タッチで確定後も最新の矩形だけを表示する");
-  editor.commit({ type: "brushMosaic", points: [{ x: 90, y: 50 }], brushSize: 10, blockSize: 20 });
-  editor.commit({ type: "ellipseAnnotation", x: 30, y: 20, width: 40, height: 30, color: "#e53935", strokeWidth: 4 });
-  checkSelection(secondSelection, "ブラシや注釈を追加しても最新の矩形だけを表示する");
-  editor.undo();
-  editor.undo();
-  editor.undo();
-  checkSelection(firstSelection, "最新の矩形をUndoすると前の矩形へ枠を移す");
-  editor.undo();
-  checkSelection(null, "矩形がなくなると枠を表示しない");
-  editor.redo();
-  checkSelection(firstSelection, "Redoで復元した矩形へ枠を表示する");
-  editor.redo();
-  checkSelection(secondSelection, "Redoで最新の矩形へ枠を移す");
-
-  // New tools share mouse/touch input, editable history, settings and export.
-  for (const [tool, type, pointerType] of [
-    ["ellipseMosaic", "ellipseMosaic", "mouse"],
-    ["rectangleAnnotation", "rectangleAnnotation", "touch"],
-  ]) {
+  const checkExport = async (expected, description) => {
+    let blob;
+    const createURL = URL.createObjectURL, click = HTMLAnchorElement.prototype.click;
+    try {
+      URL.createObjectURL = value => { blob = value; return createURL.call(URL, value); };
+      HTMLAnchorElement.prototype.click = () => {};
+      await exportImage(editor.state, "test.png", "image/png");
+    } finally { URL.createObjectURL = createURL; HTMLAnchorElement.prototype.click = click; }
+    const bitmap = await createImageBitmap(blob);
+    const c = document.createElement("canvas"); c.width = bitmap.width; c.height = bitmap.height;
+    c.getContext("2d").drawImage(bitmap, 0, 0); bitmap.close();
+    const actual = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+    assert(expected.every((v, i) => actual[i] === v), description);
+  };
+  // Independent fixtures make missing or incorrect geometry adapters fail.
+  const fixtures = {
+    rectangle: { type: "rectangleMosaic", x: 25, y: 15, width: 60, height: 40, blockSize: 20 },
+    ellipseMosaic: { type: "ellipseMosaic", x: 25, y: 15, width: 60, height: 40, blockSize: 20 },
+    brush: { type: "brushMosaic", points: [{ x: 25, y: 15 }, { x: 85, y: 55 }], brushSize: 16, blockSize: 20 },
+    rectangleAnnotation: { type: "rectangleAnnotation", x: 25, y: 15, width: 60, height: 40, color: "#e53935", strokeWidth: 8 },
+    ellipse: { type: "ellipseAnnotation", x: 25, y: 15, width: 60, height: 40, color: "#e53935", strokeWidth: 8 },
+    arrow: { type: "arrowAnnotation", x1: 25, y1: 15, x2: 85, y2: 55, color: "#e53935", strokeWidth: 8 },
+  };
+  assert(Object.keys(DRAWING_TOOLS).every(tool => fixtures[tool]), "全描画ツールに独立した回帰テストが存在する");
+  for (const pointerType of ["mouse", "touch"]) for (const [tool, descriptor] of Object.entries(DRAWING_TOOLS)) {
+    editor.setImage(source); editor.setMosaicSize(20); editor.setBrushSize(16);
+    editor.setAnnotationColor("#e53935"); editor.setAnnotationStrokeWidth(8);
     editor.setTool(tool);
-    editor.onPointerDown({ pointerId: 20, button: 0, pointerType, ...clientPoint(25, 15) });
-    editor.onPointerMove({ pointerId: 20, pointerType, ...clientPoint(85, 55) });
-    editor.onPointerUp({ pointerId: 20, pointerType, ...clientPoint(85, 55) });
-    assert(editor.state.operations.at(-1).type === type, `${tool}: 新規図形を確定する`);
-    const target = editor.state.operations.length - 1;
-    editor.onPointerDown({ pointerId: 21, button: 0, pointerType, ...clientPoint(55, 35) });
-    editor.onPointerMove({ pointerId: 21, pointerType, ...clientPoint(65, 40) });
-    editor.onPointerUp({ pointerId: 21, pointerType, ...clientPoint(65, 40) });
-    assert(resolveOperations(editor.state.operations)[target].x === 35, `${tool}: 選択して移動する`);
-    editor.undo();
-    assert(resolveOperations(editor.state.operations)[target].x === 25, `${tool}: 移動をUndoする`);
-    editor.redo();
-    assert(resolveOperations(editor.state.operations)[target].x === 35, `${tool}: 移動をRedoする`);
-    editor.onPointerDown({ pointerId: 22, button: 0, pointerType, ...clientPoint(95, 60) });
-    editor.onPointerMove({ pointerId: 22, pointerType, ...clientPoint(105, 65) });
-    editor.onPointerUp({ pointerId: 22, pointerType, ...clientPoint(105, 65) });
-    const edited = resolveOperations(editor.state.operations)[target];
-    assert(Math.abs(edited.width - 70) < 0.01 && Math.abs(edited.height - 45) < 0.01, `${tool}: ハンドルでサイズ変更する`);
-    if (tool === "ellipseMosaic") {
-      editor.setMosaicSize(18);
-      assert(resolveOperations(editor.state.operations)[target].blockSize === 18, "編集後の丸囲みモザイクへ強度を反映する");
-    } else {
-      editor.setAnnotationStrokeWidth(6);
-      assert(resolveOperations(editor.state.operations)[target].strokeWidth === 6, "編集後の矩形注釈へ線幅を反映する");
-      editor.setAnnotationColor("#2563eb");
-      assert(resolveOperations(editor.state.operations)[target].color === "#2563eb", "選択した矩形注釈の色を変更する");
+    drag({ x: 25, y: 15 }, { x: 85, y: 55 }, pointerType);
+    const original = resolveOperations(editor.state.operations)[0];
+    const expectedOriginal = fixtures[tool];
+    assert(original.type === descriptor.type && equivalent(original, expectedOriginal), `${tool}/${pointerType}: 作成座標と設定`);
+    editor.setTool("select");
+    drag({ x: 55, y: 35 }, { x: 95, y: 45 }, pointerType);
+    assert(editor.selectedIndex === 0, `${tool}/${pointerType}: 選択`);
+    const moved = tool === "brush" ? { ...expectedOriginal, points: expectedOriginal.points.map(p => ({ x: p.x + 40, y: p.y + 10 })) }
+      : tool === "arrow" ? { ...expectedOriginal, x1: 65, y1: 25, x2: 125, y2: 65 }
+      : { ...expectedOriginal, x: 65, y: 25 };
+    const actual = resolveOperations(editor.state.operations)[0];
+    assert(near(bounds(actual).x, bounds(moved).x) && near(bounds(actual).y, bounds(moved).y), `${tool}/${pointerType}: 移動座標`);
+    if (tool === "brush") assert(actual.points.every((p, i) => near(p.x, moved.points[i].x) && near(p.y, moved.points[i].y)), "ブラシ全軌跡を移動");
+    if (tool === "arrow") assert(near(actual.x2, moved.x2) && near(actual.y2, moved.y2), "矢印両端点を移動");
+    assert(actual.color === original.color && actual.strokeWidth === original.strokeWidth, "編集で色・線幅を保持");
+    editor.undo(); assert(JSON.stringify(resolveOperations(editor.state.operations)[0]) === JSON.stringify(original), `${tool}: 移動Undo`);
+    editor.redo(); assert(JSON.stringify(resolveOperations(editor.state.operations)[0]) === JSON.stringify(actual), `${tool}: 移動Redo`);
+    await checkExport(pixelsFor([moved]), `${tool}/${pointerType}: 保存PNGへ移動を反映し選択枠を除外`);
+    const movedPixels = pixelsFor([moved]);
+    assert(pixelsFor([original]).some((v, i) => v !== movedPixels[i]), `${tool}: 移動前後で保存画素が変わる`);
+    // Select without creating a history entry, then manipulate the selected handle.
+    drag({ x: 95, y: 45 }, { x: 95, y: 45 }, pointerType);
+    for (const handle of handles(actual)) {
+      const before = resolveOperations(editor.state.operations)[0];
+      const currentHandle = handles(before).find(h => h.id === handle.id);
+      const end = { x: currentHandle.x + 15, y: currentHandle.y + 8 };
+      drag(currentHandle, end, pointerType);
+      const resized = resolveOperations(editor.state.operations)[0];
+      const expected = handle.id === "resize" ? { ...before, width: before.width + 15, height: before.height + 8 }
+        : { ...before, [handle.id === "start" ? "x1" : "x2"]: end.x, [handle.id === "start" ? "y1" : "y2"]: end.y };
+      assert(Object.keys(expected).every(k => typeof expected[k] !== "number" || near(expected[k], resized[k])), `${tool}/${pointerType}: サイズ・端点変更座標`);
+      editor.undo(); assert(JSON.stringify(resolveOperations(editor.state.operations)[0]) === JSON.stringify(before), `${tool}: サイズUndo`);
+      editor.redo(); assert(JSON.stringify(resolveOperations(editor.state.operations)[0]) === JSON.stringify(resized), `${tool}: サイズRedo`);
+      await checkExport(pixelsFor([expected]), `${tool}: 保存PNGへサイズ変更を反映`);
+      drag({ x: 95, y: 45 }, { x: 95, y: 45 }, pointerType);
     }
+    const length = editor.state.operations.length;
+    drag({ x: 95, y: 45 }, { x: 100, y: 50 }, pointerType, true);
+    assert(editor.state.operations.length === length && editor.activeDraft === null, "pointercancelで編集を破棄");
   }
+  editor.setImage(source);
+  editor.commit(fixtures.rectangleAnnotation); editor.commit(fixtures.rectangle);
+  editor.setTool("select"); drag({ x: 55, y: 35 }, { x: 55, y: 35 });
+  assert(editor.selectedIndex === 0, "描画順に従いモザイクより前面の注釈を選択");
+  editor.commit(fixtures.ellipse); drag({ x: 55, y: 35 }, { x: 55, y: 35 });
+  assert(editor.selectedIndex === 2, "重なる注釈は最前面を選択");
+  drag({ x: 180, y: 90 }, { x: 180, y: 90 });
+  assert(editor.selectedIndex === null, "空白クリックで選択解除");
+  editor.setTool("rectangleAnnotation"); drag({ x: 40, y: 25 }, { x: 70, y: 45 });
+  assert(editor.state.operations.at(-1).type === "rectangleAnnotation", "描画モードは重なる新規図形を作成");
+  editor.setTool("select");
+  const length = editor.state.operations.length;
+  editor.spacePressed = true; drag({ x: 55, y: 35 }, { x: 60, y: 40 }); editor.spacePressed = false;
+  assert(editor.state.operations.length === length, "Spaceパンは編集履歴を変更しない");
+  editor.onPointerDown({ pointerId: 1, button: 0, pointerType: "touch", ...clientPoint(55, 35) });
+  editor.onPointerMove({ pointerId: 1, pointerType: "touch", ...clientPoint(60, 40) });
+  editor.onPointerDown({ pointerId: 2, button: 0, pointerType: "touch", ...clientPoint(120, 65) });
+  assert(editor.activeDraft === null && editor.pinch, "2本指は編集ドラフトを破棄しピンチへ切り替える");
+  editor.onPointerUp({ pointerId: 2, pointerType: "touch" }); editor.onPointerUp({ pointerId: 1, pointerType: "touch" });
+  assert(editor.state.operations.length === length, "ピンチ開始時の移動を確定しない");
+  editor.state.zoom = 2;
+  const selectedBeforeZoom = resolveOperations(editor.state.operations)[3];
+  drag({ x: 55, y: 35 }, { x: 65, y: 40 });
+  const selectedAfterZoom = resolveOperations(editor.state.operations)[3];
+  assert(near(selectedAfterZoom.x, selectedBeforeZoom.x + 10) && near(selectedAfterZoom.y, selectedBeforeZoom.y + 5), "ズーム後も元画像座標で移動");
   const shapeCanvas = document.createElement("canvas");
   shapeCanvas.width = 120; shapeCanvas.height = 80;
   const shapeContext = shapeCanvas.getContext("2d");
@@ -323,11 +347,6 @@ try {
   const outputPixels = expectedContext.getImageData(0, 0, source.width, source.height).data;
   assert(expectedPixels.every((value, index) => value === outputPixels[index]), "保存PNGはモザイク描画のみと全画素が一致し選択枠を含まない");
   outputImage.close();
-  editor.setImage(source);
-  checkSelection(null, "画像読み込みで枠を解除する");
-  editor.commit({ type: "brushMosaic", points: [{ x: 50, y: 50 }], brushSize: 10, blockSize: 20 });
-  checkSelection(null, "ブラシだけの場合は選択枠を表示しない");
-
   const previewHeading = document.createElement("h2");
   previewHeading.textContent = "Brush cursor preview";
   editorHost.before(previewHeading);

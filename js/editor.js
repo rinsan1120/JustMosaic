@@ -1,4 +1,5 @@
-import { renderOperations, resolveOperations } from "./mosaic.js?v=4";
+import { bounds, handles, contains, editObject } from "./objects.js?v=5";
+import { renderOperations, resolveOperations } from "./mosaic.js?v=5";
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
@@ -41,6 +42,7 @@ export class MosaicEditor {
   get displayScale() { return this.fitScale * this.state.zoom; }
 
   setImage(image) {
+    this.activeDraft = null;
     this.selectedIndex = null;
     this.state.sourceImage = image;
     this.state.imageWidth = image.naturalWidth || image.width;
@@ -63,6 +65,8 @@ export class MosaicEditor {
   }
 
   setTool(tool) {
+    this.activeDraft = null;
+    this.selectedIndex = null;
     this.state.tool = tool;
     this.canvas.classList.toggle("is-brush", tool === "brush");
     if (tool !== "brush") this.setHoverPointer(null);
@@ -83,7 +87,7 @@ export class MosaicEditor {
       if (shape.type.endsWith("Mosaic")) shape.blockSize = blockSize;
     }
     if (this.activeDraft?.type === "brushMosaic") this.activeDraft.blockSize = blockSize;
-    if (this.activeDraft?.operation?.type === "ellipseMosaic") this.activeDraft.operation.blockSize = blockSize;
+    if (this.activeDraft?.operation?.type.endsWith("Mosaic")) this.activeDraft.operation.blockSize = blockSize;
 
     this.requestRender();
   }
@@ -91,26 +95,22 @@ export class MosaicEditor {
   setAnnotationColor(value) {
     this.state.annotationColor = value;
     const selected = this.selectedShapeIndex();
-    if (resolveOperations(this.state.operations)[selected]?.type === "rectangleAnnotation") {
+    if (resolveOperations(this.state.operations)[selected]?.type.endsWith("Annotation")) {
       for (const entry of [...this.state.operations, ...this.state.redoStack]) {
         const shape = entry.type === "shapeEdit" ? entry.operation : entry;
         if (entry === this.state.operations[selected] || entry.target === selected) shape.color = value;
       }
     }
     if (this.activeDraft?.type === "rectangleAnnotationDraft") this.activeDraft.color = value;
-    if (this.activeDraft?.operation?.type === "rectangleAnnotation") this.activeDraft.operation.color = value;
+    if (this.activeDraft?.operation?.type.endsWith("Annotation")) this.activeDraft.operation.color = value;
     this.requestRender();
   }
 
   selectedShapeIndex() {
     if (this.selectedIndex != null && this.state.operations[this.selectedIndex]) return this.selectedIndex;
-    for (let index = this.state.operations.length - 1; index >= 0; index -= 1) {
-      const entry = this.state.operations[index];
-      if (entry.type === "shapeEdit") return entry.target;
-      if (["rectangleMosaic", "ellipseMosaic", "rectangleAnnotation"].includes(entry.type)) return index;
-    }
     return -1;
   }
+
   setAnnotationStrokeWidth(value) {
     const strokeWidth = Number(value);
     this.state.annotationStrokeWidth = strokeWidth;
@@ -125,7 +125,7 @@ export class MosaicEditor {
     }
     if (this.activeDraft?.type === "arrowDraft" || this.activeDraft?.type === "ellipseDraft" || this.activeDraft?.type === "rectangleAnnotationDraft") this.activeDraft.strokeWidth = strokeWidth;
 
-    if (this.activeDraft?.operation?.type === "rectangleAnnotation") this.activeDraft.operation.strokeWidth = strokeWidth;
+    if (this.activeDraft?.operation?.type.endsWith("Annotation")) this.activeDraft.operation.strokeWidth = strokeWidth;
     this.requestRender();
   }
 
@@ -212,7 +212,7 @@ export class MosaicEditor {
   }
 
   commit(operation) {
-    this.selectedIndex = operation.type === "shapeEdit" ? operation.target : null;
+    this.selectedIndex = operation.type === "shapeEdit" ? operation.target : this.state.operations.length;
     this.state.operations.push(operation);
     this.state.redoStack = [];
     this.activeDraft = null;
@@ -291,10 +291,11 @@ export class MosaicEditor {
     }
     if (this.activeDraft?.type === "shapeEditDraft") rectangle = this.activeDraft.operation;
     if (rectangle) {
-      const x = transform.offsetX + rectangle.x * transform.scale;
-      const y = transform.offsetY + rectangle.y * transform.scale;
-      const width = rectangle.width * transform.scale;
-      const height = rectangle.height * transform.scale;
+      const box = bounds(rectangle);
+      const x = transform.offsetX + box.x * transform.scale;
+      const y = transform.offsetY + box.y * transform.scale;
+      const width = box.width * transform.scale;
+      const height = box.height * transform.scale;
       ctx.save();
       ctx.fillStyle = "rgba(76, 124, 255, .14)";
       ctx.strokeStyle = "#6f95ff";
@@ -309,9 +310,15 @@ export class MosaicEditor {
         if (isRectangleDraft) ctx.fillRect(x, y, width, height);
         ctx.strokeRect(x, y, width, height);
       }
-      if (["ellipseMosaic", "rectangleAnnotation"].includes(rectangle.type)) {
+      if (!isRectangleDraft && this.state.tool === "select") {
         ctx.setLineDash([]);
-        ctx.strokeRect(x + width - 5 * ratio, y + height - 5 * ratio, 10 * ratio, 10 * ratio);
+        for (const handle of handles(rectangle)) {
+          const hx = transform.offsetX + handle.x * transform.scale;
+          const hy = transform.offsetY + handle.y * transform.scale;
+          ctx.fillStyle = "#fff";
+          ctx.fillRect(hx - 6 * ratio, hy - 6 * ratio, 12 * ratio, 12 * ratio);
+          ctx.strokeRect(hx - 6 * ratio, hy - 6 * ratio, 12 * ratio, 12 * ratio);
+        }
       }
       ctx.restore();
     }
@@ -366,6 +373,8 @@ export class MosaicEditor {
     this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (this.pointers.size === 2) {
       this.activeDraft = null;
+      this.panStart = null;
+      this.canvas.classList.remove("is-panning");
       this.setHoverPointer(null);
       const [a, b] = [...this.pointers.values()];
       this.pinch = {
@@ -386,19 +395,17 @@ export class MosaicEditor {
     if (event.button !== 0) return;
     const point = this.imagePoint(event.clientX, event.clientY);
     if (!this.isInside(point)) return;
-    const editableType = { ellipseMosaic: "ellipseMosaic", rectangleAnnotation: "rectangleAnnotation" }[this.state.tool];
-    const operations = resolveOperations(this.state.operations);
-    for (let index = operations.length - 1; editableType && index >= 0; index -= 1) {
-      const operation = operations[index];
-      if (operation?.type !== editableType) continue;
-      const tolerance = 10 / this.displayScale;
-      const resize = Math.hypot(point.x - operation.x - operation.width, point.y - operation.y - operation.height) <= tolerance;
-      const inside = operation.type === "ellipseMosaic"
-        ? ((point.x - operation.x - operation.width / 2) / (operation.width / 2)) ** 2 + ((point.y - operation.y - operation.height / 2) / (operation.height / 2)) ** 2 <= 1
-        : point.x >= operation.x && point.x <= operation.x + operation.width && point.y >= operation.y && point.y <= operation.y + operation.height;
-      if (!resize && !inside) continue;
-      this.selectedIndex = index;
-      this.activeDraft = { type: "shapeEditDraft", target: index, start: point, original: operation, operation: { ...operation }, resize };
+    if (this.state.tool === "select") {
+      const operations = resolveOperations(this.state.operations);
+      const tolerance = (event.pointerType === "touch" ? 22 : 10) / this.displayScale;
+      const selected = operations[this.selectedIndex];
+      const handle = selected && handles(selected).find(h => Math.hypot(point.x - h.x, point.y - h.y) <= tolerance);
+      // Match rendering: annotations are above mosaics, then latest creation first.
+      const indices = operations.map((object, index) => object ? index : null).filter(index => index != null)
+        .sort((a, b) => Number(operations[b].type.endsWith("Annotation")) - Number(operations[a].type.endsWith("Annotation")) || b - a);
+      const index = handle ? this.selectedIndex : indices.find(i => contains(operations[i], point, tolerance));
+      this.selectedIndex = index ?? null;
+      if (index != null) this.activeDraft = { type: "shapeEditDraft", target: index, start: point, original: operations[index], operation: operations[index], handle: handle?.id };
       this.requestRender();
       return;
     }
@@ -449,10 +456,8 @@ export class MosaicEditor {
     if (!this.activeDraft) return;
     const point = this.imagePoint(event.clientX, event.clientY, true);
     if (this.activeDraft.type === "shapeEditDraft") {
-      const { original, start, resize } = this.activeDraft;
-      this.activeDraft.operation = resize
-        ? { ...original, width: Math.max(1, point.x - original.x), height: Math.max(1, point.y - original.y) }
-        : { ...original, x: Math.max(0, Math.min(this.state.imageWidth - original.width, original.x + point.x - start.x)), y: Math.max(0, Math.min(this.state.imageHeight - original.height, original.y + point.y - start.y)) };
+      const { original, start, handle } = this.activeDraft;
+      this.activeDraft.operation = editObject(original, start, point, handle, this.state.imageWidth, this.state.imageHeight);
     } else if (this.activeDraft.type === "ellipseMosaicDraft" || this.activeDraft.type === "rectangleAnnotationDraft" || this.activeDraft.type === "rectangleDraft" || this.activeDraft.type === "arrowDraft" || this.activeDraft.type === "ellipseDraft") this.activeDraft.end = point;
     else {
       const last = this.activeDraft.points.at(-1);
@@ -463,6 +468,7 @@ export class MosaicEditor {
   }
 
   onPointerUp(event, cancelled = false) {
+    if (!this.pointers.has(event.pointerId)) return;
     this.pointers.delete(event.pointerId);
     if (this.pointers.size < 2) this.pinch = null;
     if (this.panStart) {
@@ -475,12 +481,12 @@ export class MosaicEditor {
     if (cancelled || !this.activeDraft) {
       this.activeDraft = null;
       if (cancelled) this.setHoverPointer(null);
-      else this.requestRender();
+      this.requestRender();
       return;
     }
     if (this.activeDraft.type === "shapeEditDraft") {
       const { target, operation, original } = this.activeDraft;
-      if (["x", "y", "width", "height"].some(key => operation[key] !== original[key])) this.commit({ type: "shapeEdit", target, operation });
+      if (JSON.stringify(operation) !== JSON.stringify(original)) this.commit({ type: "shapeEdit", target, operation });
       else { this.activeDraft = null; this.requestRender(); }
     } else if (this.activeDraft.type === "rectangleDraft" || this.activeDraft.type === "ellipseMosaicDraft") {
       const { start, end } = this.activeDraft;

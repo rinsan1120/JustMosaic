@@ -206,3 +206,5 @@ button:disabled { cursor: not-allowed; opacity: .38; }
 }
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; animation-duration: .01ms !important; } }
+
+.editor-tools > [data-tool="select"] { grid-column: 1 / -1; justify-self: start; }
