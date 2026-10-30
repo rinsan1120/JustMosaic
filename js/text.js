@@ -1,4 +1,4 @@
-export const isTextObject = object => ['textBoxAnnotation', 'speechAnnotation'].includes(object?.type);
+export const isTextObject = object => ['textBoxAnnotation', 'speechAnnotation', 'textAnnotation'].includes(object?.type);
 export const TEXT_DEFAULTS = Object.freeze({ text: 'テキスト', fontMode: 'auto', fontSize: 32, bold: false, textColor: '#192439', align: 'left', verticalAlign: 'top', background: '#ffffff', borderColor: '#192439', opacity: 1, borderWidth: 2 });
 let measure;
 export const textFont = (object, size) => `${object.bold ? '700' : '400'} ${size.toFixed(15)}px sans-serif`;
@@ -100,15 +100,17 @@ export function renderText(context, object, transform) {
   context.translate(transform.offsetX, transform.offsetY);
   context.scale(transform.scale, transform.scale);
   context.globalAlpha = object.opacity;
-  context.beginPath();
-  textOutline(object).forEach((p, i) => i ? context.lineTo(p.x, p.y) : context.moveTo(p.x, p.y));
-  context.closePath();
-  context.fillStyle = object.background;
-  context.fill();
-  context.strokeStyle = object.borderColor;
-  context.lineWidth = Math.min(object.borderWidth, layout.padding);
-  context.lineJoin = 'round';
-  context.stroke();
+  if (object.type !== 'textAnnotation') {
+    context.beginPath();
+    textOutline(object).forEach((p, i) => i ? context.lineTo(p.x, p.y) : context.moveTo(p.x, p.y));
+    context.closePath();
+    context.fillStyle = object.background;
+    context.fill();
+    context.strokeStyle = object.borderColor;
+    context.lineWidth = Math.min(object.borderWidth, layout.padding);
+    context.lineJoin = 'round';
+    context.stroke();
+  }
   context.fillStyle = object.textColor;
   context.font = textFont(object, layout.size);
   context.textAlign = 'left';

@@ -1,4 +1,4 @@
-import { textOutline } from './text.js?v=8';
+import { textOutline } from './text.js?v=9';
 // Every drawable tool must declare its geometry here; tests compare this registry to the UI.
 export const DRAWING_TOOLS = Object.freeze({
   rectangle: { type: 'rectangleMosaic', geometry: 'box' },
@@ -9,6 +9,7 @@ export const DRAWING_TOOLS = Object.freeze({
   arrow: { type: 'arrowAnnotation', geometry: 'arrow' },
   textBox: { type: 'textBoxAnnotation', geometry: 'box' },
   speech: { type: 'speechAnnotation', geometry: 'box' },
+  text: { type: 'textAnnotation', geometry: 'box' },
 });
 const geometry = object => Object.values(DRAWING_TOOLS).find(tool => tool.type === object.type)?.geometry;
 export function bounds(object) {
@@ -52,7 +53,7 @@ export function contains(object, point, tolerance) {
   if (kind === 'ellipse') return ((point.x - object.x - object.width / 2) / (object.width / 2 + tolerance)) ** 2 + ((point.y - object.y - object.height / 2) / (object.height / 2 + tolerance)) ** 2 <= 1;
   return kind === 'box' && point.x >= object.x - tolerance && point.x <= object.x + object.width + tolerance && point.y >= object.y - tolerance && point.y <= object.y + object.height + tolerance;
 }
-export function editObject(original, start, point, handle, imageWidth, imageHeight) {
+export function editObject(original, start, point, handle, imageWidth, imageHeight, view = { x: 0, y: 0, width: imageWidth, height: imageHeight }) {
   if (handle === 'tail') return { ...original, tailX: point.x - original.x, tailY: point.y - original.y };
   if (handle === 'resize') return { ...original, width: Math.max(1, point.x - original.x), height: Math.max(1, point.y - original.y) };
   if (handle === 'start' || handle === 'end') return { ...original, [handle === 'start' ? 'x1' : 'x2']: point.x, [handle === 'start' ? 'y1' : 'y2']: point.y };
@@ -62,8 +63,8 @@ export function editObject(original, start, point, handle, imageWidth, imageHeig
     box = { x, y, width: Math.max(box.x + box.width, original.x + original.tailX) - x,
       height: Math.max(box.y + box.height, original.y + original.tailY) - y };
   }
-  const dx = Math.max(Math.min(0, -box.x), Math.min(Math.max(0, imageWidth - box.x - box.width), point.x - start.x));
-  const dy = Math.max(Math.min(0, -box.y), Math.min(Math.max(0, imageHeight - box.y - box.height), point.y - start.y));
+  const dx = Math.max(Math.min(0, view.x - box.x), Math.min(Math.max(0, view.x + view.width - box.x - box.width), point.x - start.x));
+  const dy = Math.max(Math.min(0, view.y - box.y), Math.min(Math.max(0, view.y + view.height - box.y - box.height), point.y - start.y));
   if (geometry(original) === 'brush') return { ...original, points: original.points.map(p => ({ x: p.x + dx, y: p.y + dy })) };
   if (geometry(original) === 'arrow') return { ...original, x1: original.x1 + dx, y1: original.y1 + dy, x2: original.x2 + dx, y2: original.y2 + dy };
   return { ...original, x: original.x + dx, y: original.y + dy };

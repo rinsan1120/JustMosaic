@@ -10,7 +10,7 @@
     <meta name="description" content="画像をアップロードせず、ブラウザ内だけでモザイク加工できるツール">
     <meta name="theme-color" content="#f5f7fb">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23192439'/%3E%3Cpath fill='%23fff' d='M7 7h8v8H7zm10 0h8v8h-8zM7 17h8v8H7z'/%3E%3Cpath fill='%234d7cff' d='M17 17h8v8h-8z'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="css/style.css?v=8">
+    <link rel="stylesheet" href="css/style.css?v=9">
     <title>JustMosaic!</title>
   </head>
   <body>
@@ -104,6 +104,7 @@
                   </button>
                   <button class="tool-button" type="button" data-tool="speech" aria-pressed="false">吹き出し</button>
                   <button class="tool-button" type="button" data-tool="textBox" aria-pressed="false">テキスト枠</button>
+                  <button class="tool-button" type="button" data-tool="text" aria-pressed="false">テキストのみ</button>
                 </div>
               </div>
 
@@ -125,7 +126,7 @@
             </section>
           </div>
 
-          <section id="textSettings" class="text-settings" aria-label="吹き出し・テキスト枠の設定" hidden>
+          <section id="textSettings" class="text-settings" aria-label="文字注釈の設定" hidden>
             <p id="textStatus">空白からドラッグして配置。文字の編集はダブルクリック、または「文字を編集」。</p>
             <div class="text-fields">
               <label>文字サイズ<select id="fontMode"><option value="auto">自動（全文を表示）</option><option value="manual">手動</option></select></label>
@@ -134,8 +135,8 @@
               <label>文字色<input id="textColor" type="color" value="#192439"></label>
               <label>水平揃え<select id="textAlign"><option value="left">左揃え</option><option value="center">中央揃え</option><option value="right">右揃え</option></select></label>
               <label>垂直揃え<select id="textVerticalAlign"><option value="top">上揃え</option><option value="middle">中央揃え</option><option value="bottom">下揃え</option></select></label>
-              <label>背景色<input id="textBackground" type="color" value="#ffffff"></label>
-              <label>枠線色<input id="textBorder" type="color" value="#192439"></label>
+              <label id="textBackgroundSetting">背景色<input id="textBackground" type="color" value="#ffffff"></label>
+              <label id="textBorderSetting">枠線色<input id="textBorder" type="color" value="#192439"></label>
               <label>不透明度<input id="textOpacity" type="range" min="0" max="100" value="100" aria-label="注釈の不透明度"></label>
             </div>
             <div class="text-actions">
@@ -145,7 +146,14 @@
             <p>しっぽは先端ハンドルをドラッグ。自動では全文が収まる文字サイズに調整し、8px未満になる場合は枠を画像内で拡張します。なお収まらない場合は全文を優先して縮小します。</p>
           </section>
 
+          <section id="cropSettings" class="crop-settings" aria-label="トリミング範囲" hidden>
+            <p>ドラッグで範囲を指定（1px単位）。範囲内をドラッグして移動、四隅でサイズ変更できます。</p>
+            <output id="cropSize" aria-live="polite">範囲を選択してください</output>
+            <button id="confirmCrop" class="button button-primary" type="button" disabled>トリミングを確定</button>
+            <button id="cancelCrop" class="button button-secondary" type="button">キャンセル</button>
+          </section>
           <div class="action-row">
+            <button id="startCrop" class="button button-secondary" type="button" aria-pressed="false" disabled>トリミング</button>
             <div class="history-block" role="group" aria-label="編集履歴">
               <button id="undo" class="icon-button" type="button" disabled><span aria-hidden="true">↶</span>Undo</button>
               <button id="redo" class="icon-button" type="button" disabled><span aria-hidden="true">↷</span>Redo</button>
@@ -164,6 +172,6 @@
     </div>
 
     <input id="fileInput" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp">
-    <script type="module" src="js/app.js?v=8"></script>
+    <script type="module" src="js/app.js?v=9"></script>
   </body>
 </html>

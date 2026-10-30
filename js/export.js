@@ -1,4 +1,4 @@
-import { renderOperations } from "./mosaic.js?v=8";
+import { outputCanvas } from './scene.js?v=9';
 
 const MIME_EXTENSIONS = {
   "image/jpeg": "jpg",
@@ -13,17 +13,7 @@ export function buildOutputName(originalName, mimeType) {
 }
 
 export async function exportImage(state, originalName, mimeType) {
-  const canvas = document.createElement("canvas");
-  canvas.width = state.imageWidth;
-  canvas.height = state.imageHeight;
-  const context = canvas.getContext("2d", { alpha: mimeType !== "image/jpeg" });
-  if (!context) throw new Error("CANVAS_FAILED");
-  if (mimeType === "image/jpeg") {
-    context.fillStyle = "#fff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-  }
-  context.drawImage(state.sourceImage, 0, 0, canvas.width, canvas.height);
-  renderOperations(context, canvas, state.operations, { scale: 1, offsetX: 0, offsetY: 0, imageWidth: state.imageWidth, imageHeight: state.imageHeight });
+  const canvas = outputCanvas(state, mimeType);
   const blob = await new Promise((resolve, reject) => {
     canvas.toBlob((result) => result ? resolve(result) : reject(new Error("ENCODE_FAILED")), mimeType, mimeType === "image/jpeg" ? 0.98 : undefined);
   });

@@ -1,4 +1,4 @@
-import { isTextObject, renderText } from './text.js?v=8';
+import { isTextObject, renderText } from './text.js?v=9';
 const makeCanvas = (width, height) => {
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.ceil(width));
@@ -171,7 +171,7 @@ export function resolveOperations(history) {
   const operations = [];
   history.forEach((operation, index) => {
     if (operation.type === "shapeEdit") operations[operation.target] = operation.operation;
-    else operations[index] = operation;
+    else if (operation.type !== 'crop') operations[index] = operation;
   });
   return operations;
 }

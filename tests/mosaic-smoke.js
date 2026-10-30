@@ -1,3 +1,4 @@
+import { imageBounds } from '../js/scene.js';
 import { layoutText, TEXT_DEFAULTS } from '../js/text.js';
 import { DRAWING_TOOLS, bounds, handles, contains } from "../js/objects.js";
 import { renderOperations, resolveOperations } from "../js/mosaic.js";
@@ -216,7 +217,7 @@ try {
     renderOperations(ctx, c, history, { scale: 1, offsetX: 0, offsetY: 0, imageWidth: source.width, imageHeight: source.height });
     return ctx.getImageData(0, 0, c.width, c.height).data;
   };
-  const checkExport = async (expected, description) => {
+  const checkExport = async (expected, description, expectedWidth = source.width, expectedHeight = source.height) => {
     let blob;
     const createURL = URL.createObjectURL, click = HTMLAnchorElement.prototype.click;
     try {
@@ -225,6 +226,7 @@ try {
       await exportImage(editor.state, "test.png", "image/png");
     } finally { URL.createObjectURL = createURL; HTMLAnchorElement.prototype.click = click; }
     const bitmap = await createImageBitmap(blob);
+    assert(bitmap.width === expectedWidth && bitmap.height === expectedHeight, `${description}: 保存寸法`);
     const c = document.createElement("canvas"); c.width = bitmap.width; c.height = bitmap.height;
     c.getContext("2d").drawImage(bitmap, 0, 0); bitmap.close();
     const actual = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
@@ -238,6 +240,7 @@ try {
     rectangleAnnotation: { type: "rectangleAnnotation", x: 25, y: 15, width: 60, height: 40, color: "#e53935", strokeWidth: 8 },
     ellipse: { type: "ellipseAnnotation", x: 25, y: 15, width: 60, height: 40, color: "#e53935", strokeWidth: 8 },
     textBox: { type: "textBoxAnnotation", x: 25, y: 15, width: 60, height: 40, text: 'テキスト', fontMode: 'auto', fontSize: 32, bold: false, textColor: '#192439', align: 'left', verticalAlign: 'top', background: '#ffffff', borderColor: '#192439', opacity: 1, borderWidth: 2 },
+    text: { type: "textAnnotation", x: 25, y: 15, width: 60, height: 40, text: 'テキスト', fontMode: 'auto', fontSize: 32, bold: false, textColor: '#192439', align: 'left', verticalAlign: 'top', background: '#ffffff', borderColor: '#192439', opacity: 1, borderWidth: 2 },
     speech: { type: "speechAnnotation", x: 25, y: 15, width: 60, height: 40, text: 'テキスト', fontMode: 'auto', fontSize: 32, bold: false, textColor: '#192439', align: 'left', verticalAlign: 'top', background: '#ffffff', borderColor: '#192439', opacity: 1, borderWidth: 2, tailX: 45, tailY: 60 },
     arrow: { type: "arrowAnnotation", x1: 25, y1: 15, x2: 85, y2: 55, color: "#e53935", strokeWidth: 8 },
   };
@@ -289,7 +292,7 @@ try {
     drag({ x: 95, y: 45 }, { x: 100, y: 50 }, pointerType, true);
     assert(editor.state.operations.length === length && editor.activeDraft === null, "pointercancelで編集を破棄");
   }
-  for (const type of ['textBoxAnnotation', 'speechAnnotation']) {
+  for (const type of ['textBoxAnnotation', 'speechAnnotation', 'textAnnotation']) {
     editor.setImage(source);
     editor.commit({ ...TEXT_DEFAULTS, type, x: 5, y: 5, width: 60, height: 40, ...(type === 'speechAnnotation' ? { tailX: 45, tailY: 60 } : {}) });
     const text = '日本語 ABC 👨‍👩‍👧‍👦 é ' .repeat(50) + '\n\n明示改行\n末尾';
@@ -344,12 +347,14 @@ try {
     const c = document.createElement('canvas'); c.width = 200; c.height = 100;
     const ctx = c.getContext('2d'); ctx.drawImage(source, 0, 0);
     const { x, y, width: w, height: h } = object;
+    if (object.type !== 'textAnnotation') {
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + h);
     if (object.type === 'speechAnnotation') {
       ctx.lineTo(x + w * .65, y + h); ctx.lineTo(x + object.tailX, y + object.tailY); ctx.lineTo(x + w * .35, y + h);
     }
     ctx.lineTo(x, y + h); ctx.closePath(); ctx.fillStyle = '#ffffff'; ctx.fill();
     ctx.strokeStyle = '#192439'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+    }
     // Wrapping/font fitting is separately covered; independently derive all placement coordinates here.
     const wrapped = layoutText(object);
     ctx.font = `400 ${wrapped.size.toFixed(15)}px sans-serif`; ctx.fillStyle = '#192439'; ctx.textBaseline = 'alphabetic';
@@ -367,7 +372,7 @@ try {
     });
     return ctx.getImageData(0, 0, 200, 100).data;
   };
-  for (const type of ['textBoxAnnotation', 'speechAnnotation']) for (const fontMode of ['manual', 'auto']) {
+  for (const type of ['textBoxAnnotation', 'speechAnnotation', 'textAnnotation']) for (const fontMode of ['manual', 'auto']) {
     for (const align of ['left', 'center', 'right']) for (const verticalAlign of ['top', 'middle', 'bottom']) {
       editor.setImage(source);
       const base = { ...TEXT_DEFAULTS, type, x: 10, y: 10, width: 100, height: 80,
@@ -394,6 +399,84 @@ try {
   assert(resolveOperations(editor.state.operations)[1].align === 'left' && resolveOperations(editor.state.operations)[1].verticalAlign === 'top', '他の注釈の水平・垂直揃えを変更しない');
   const legacy = { ...fixtures.textBox }; delete legacy.verticalAlign;
   assert(layoutText(legacy).verticalOffset === 0, '垂直揃えを持たない既存オブジェクトは上揃え');
+  const croppedPixels = (history, rect) => {
+    const c = document.createElement('canvas'); c.width = 200; c.height = 100;
+    c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(pixelsFor(history)), 200, 100), 0, 0);
+    return c.getContext('2d').getImageData(rect.x, rect.y, rect.width, rect.height).data;
+  };
+  for (const pointerType of ['mouse', 'touch']) for (const [tool, fixture] of Object.entries(fixtures)) {
+    editor.setImage(source); editor.setTool(tool); editor.commit(structuredClone(fixture));
+    const initial = JSON.stringify(resolveOperations(editor.state.operations)[0]);
+    editor.startCrop(); drag({ x: 40, y: 20 }, { x: 160, y: 90 }, pointerType);
+    drag({ x: 100, y: 55 }, { x: 105, y: 55 }, pointerType);
+    assert(equivalent(editor.cropSelection, { x: 45, y: 20, width: 120, height: 70 }), `${tool}/${pointerType}: トリミング範囲を移動`);
+    drag({ x: 165, y: 90 }, { x: 170, y: 95 }, pointerType);
+    assert(equivalent(editor.cropSelection, { x: 45, y: 20, width: 125, height: 75 }), `${tool}/${pointerType}: トリミング範囲をサイズ変更`);
+    editor.cancelCrop();
+    assert(editor.state.operations.length === 1 && !editor.cropMode, `${tool}/${pointerType}: キャンセルで履歴・画像を維持`);
+    editor.startCrop(); drag({ x: 40, y: 20 }, { x: 160, y: 90 }, pointerType); editor.confirmCrop();
+    const rect = { x: 40, y: 20, width: 120, height: 70 };
+    assert(equivalent(imageBounds(editor.state), rect), `${tool}/${pointerType}: 切り抜き範囲を確定`);
+    assert(JSON.stringify(resolveOperations(editor.state.operations)[0]) === initial, `${tool}/${pointerType}: 元の注釈座標と編集状態を維持`);
+    editor.render();
+    const preview = document.createElement('canvas'); preview.width = editor.canvas.width; preview.height = editor.canvas.height;
+    const previewContext = preview.getContext('2d', { alpha: false }); previewContext.fillStyle = '#e9edf3'; previewContext.fillRect(0, 0, preview.width, preview.height);
+    const pixels = document.createElement('canvas'); pixels.width = 120; pixels.height = 70;
+    pixels.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(croppedPixels([fixture], rect)), 120, 70), 0, 0);
+    const ratio = editor.canvas.width / editor.canvas.clientWidth, scale = editor.displayScale * ratio;
+    const px = (editor.state.offsetX + 40 * editor.displayScale) * ratio, py = (editor.state.offsetY + 20 * editor.displayScale) * ratio;
+    previewContext.beginPath(); previewContext.rect(px, py, 120 * scale, 70 * scale); previewContext.clip();
+    previewContext.drawImage(pixels, px, py, 120 * scale, 70 * scale);
+    const expectedPreview = previewContext.getImageData(0, 0, preview.width, preview.height).data;
+    const actualPreview = editor.context.getImageData(0, 0, preview.width, preview.height).data;
+    assert(expectedPreview.every((v, i) => v === actualPreview[i]), `${tool}/${pointerType}: 編集画面は保存画素の表示倍率への描画と全画素一致`);
+
+    await checkExport(croppedPixels([fixture], rect), `${tool}/${pointerType}: 境界にまたがる編集を含む保存PNGの厳密一致`, 120, 70);
+    editor.undo(); await checkExport(pixelsFor([fixture]), `${tool}/${pointerType}: トリミングUndoで全画像・注釈を復元`);
+    editor.redo();
+    assert(equivalent(imageBounds(editor.state), rect), `${tool}/${pointerType}: トリミングRedo`);
+    editor.zoomIn(); editor.zoomIn();
+    drag({ x: 55, y: 35 }, { x: 65, y: 40 }, pointerType);
+    const moved = tool === 'brush' ? { ...fixture, points: fixture.points.map(p => ({ x: p.x + 10, y: p.y + 5 })) }
+      : tool === 'arrow' ? { ...fixture, x1: 35, y1: 20, x2: 95, y2: 60 } : { ...fixture, x: 35, y: 20 };
+    assert(equivalent(resolveOperations(editor.state.operations)[0], moved), `${tool}/${pointerType}: 切り抜き後もズーム中に直接移動`);
+    await checkExport(croppedPixels([moved], rect), `${tool}/${pointerType}: トリミング後の移動保存`, 120, 70);
+    editor.undo(); assert(JSON.stringify(resolveOperations(editor.state.operations)[0]) === initial, `${tool}/${pointerType}: 移動Undoでトリミングを維持`);
+    editor.redo();
+    if (['text', 'textBox', 'speech'].includes(tool)) {
+      editor.selectedIndex = 0; editor.setTextStyle({ text: '切り抜き後の編集', align: 'right', verticalAlign: 'bottom' });
+      assert(editor.selectedText().text === '切り抜き後の編集', `${tool}/${pointerType}: トリミング後も文字を編集`);
+      editor.deleteText(); assert(!resolveOperations(editor.state.operations)[0], `${tool}/${pointerType}: トリミング後の個別削除`);
+      editor.undo(); editor.undo();
+    }
+    editor.startCrop(); drag({ x: 70, y: 30 }, { x: 140, y: 80 }, pointerType); editor.confirmCrop();
+    const nested = { x: 70, y: 30, width: 70, height: 50 };
+    await checkExport(croppedPixels([moved], nested), `${tool}/${pointerType}: 再トリミングの原画像座標と保存`, 70, 50);
+    editor.undo(); assert(equivalent(imageBounds(editor.state), rect), `${tool}/${pointerType}: 再トリミングUndo`);
+    editor.redo(); assert(equivalent(imageBounds(editor.state), nested), `${tool}/${pointerType}: 再トリミングRedo`);
+    editor.setTool('rectangleAnnotation');
+    drag({ x: 110, y: 40 }, { x: 135, y: 65 }, pointerType);
+    const added = editor.state.operations.at(-1);
+    assert(added.type === 'rectangleAnnotation' && added.x === 110 && added.y === 40, `${tool}/${pointerType}: トリミング後に元画像座標で新規描画`);
+  }
+  editor.setImage(source); editor.startCrop();
+  drag({ x: 150.2, y: 80.1 }, { x: 30.8, y: 10.9 }); editor.confirmCrop();
+  assert(equivalent(editor.viewBounds, { x: 31, y: 11, width: 119, height: 69 }), '逆方向・小数座標のトリミングを最寄りの整数画素に確定');
+  editor.undo(); editor.startCrop();
+  drag({ x: 30, y: 20 }, { x: 150, y: 80 }, 'touch', true);
+  assert(!editor.cropSelection && editor.state.operations.length === 0, 'キャンセルされたタッチ範囲を確定しない');
+  editor.cancelCrop();
+  editor.startCrop(); drag({ x: 40.2, y: 30.2 }, { x: 40.2, y: 30.2 }); editor.confirmCrop();
+  assert(editor.cropMode && editor.state.operations.length === 0, 'クリックだけの空範囲をキーボード確定しない');
+  editor.cancelCrop();
+  for (const tool of ['rectangle', 'textBox', 'speech', 'text']) {
+    editor.setImage(source); editor.commit({ ...fixtures[tool] });
+    editor.startCrop(); drag({ x: 40, y: 20 }, { x: 60, y: 40 }); editor.confirmCrop();
+    editor.selectedIndex = 0;
+    const handle = editor.visibleHandles(editor.selectedText()).find(h => h.id === 'resize');
+    drag(handle, { x: handle.x - 5, y: handle.y - 5 });
+    assert(near(editor.selectedText().width, 55) && near(editor.selectedText().height, 35), `${tool}: 切り抜き境界外のハンドルも画面内でサイズ変更可能`);
+  }
   // Independently paint a fixed text fixture, without calling the text renderer/layout.
   editor.setImage(source);
   editor.commit({ ...TEXT_DEFAULTS, type: 'textBoxAnnotation', x: 10, y: 10, width: 100, height: 60,

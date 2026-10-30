@@ -1,8 +1,9 @@
-import { isTextObject, layoutText } from './text.js?v=8';
-import { MosaicEditor } from "./editor.js?v=8";
-import { exportImage } from "./export.js?v=8";
+import { isTextObject, layoutText } from './text.js?v=9';
+import { MosaicEditor } from "./editor.js?v=9";
+import { exportImage } from "./export.js?v=9";
 
 const elements = Object.fromEntries([
+  "startCrop", "confirmCrop", "cancelCrop", "cropSettings", "cropSize", "textBackgroundSetting", "textBorderSetting",
   "textSettings", "shapeSettings", "textStatus", "fontMode", "fontSize", "textBold", "textColor", "textAlign", "textVerticalAlign", "textBackground", "textBorder", "textOpacity", "editText", "deleteText",
   "stage", "dropZone", "editorView", "editorCanvas", "openInitial", "openAnother", "fileInput",
   "loading", "message", "mosaicSize", "mosaicValue", "brushSize", "brushValue", "brushSizeRow",
@@ -18,15 +19,23 @@ const editor = new MosaicEditor(elements.editorCanvas, {
 });
 
 function updateInterface(state) {
-  elements.undo.disabled = state.operations.length === 0;
-  elements.redo.disabled = state.redoStack.length === 0;
-  elements.saveImage.disabled = !state.sourceImage;
+  elements.undo.disabled = editor.cropMode || state.operations.length === 0;
+  elements.redo.disabled = editor.cropMode || state.redoStack.length === 0;
+  elements.saveImage.disabled = !state.sourceImage || editor.cropMode;
   elements.zoomValue.value = `${Math.round(state.zoom * 100)}%`;
   elements.zoomValue.textContent = `${Math.round(state.zoom * 100)}%`;
   const selected = editor.selectedText();
   const hasText = isTextObject(selected);
-  elements.textSettings.hidden = !hasText && !['speech', 'textBox'].includes(state.tool);
+  elements.textSettings.hidden = !hasText && !['speech', 'textBox', 'text'].includes(state.tool);
   elements.shapeSettings.hidden = !elements.textSettings.hidden;
+  const textOnly = hasText ? selected.type === 'textAnnotation' : state.tool === 'text';
+  elements.textBackgroundSetting.hidden = elements.textBorderSetting.hidden = textOnly;
+  elements.startCrop.disabled = !state.sourceImage || editor.cropMode;
+  elements.startCrop.setAttribute('aria-pressed', String(Boolean(editor.cropMode)));
+  elements.cropSettings.hidden = !editor.cropMode;
+  elements.confirmCrop.disabled = !editor.cropSelection || editor.cropSelection.width < 1 || editor.cropSelection.height < 1;
+  const crop = editor.cropSelection;
+  elements.cropSize.textContent = crop ? `${Math.ceil(crop.x + crop.width) - Math.floor(crop.x)} × ${Math.ceil(crop.y + crop.height) - Math.floor(crop.y)} px` : '範囲を選択してください';
   const style = hasText ? selected : state.textStyle;
   elements.fontMode.value = style.fontMode;
   elements.fontSize.value = style.fontSize;
@@ -200,6 +209,9 @@ for (const [id, key, value] of [
   ['textAlign', 'align', el => el.value], ['textVerticalAlign', 'verticalAlign', el => el.value], ['textBackground', 'background', el => el.value],
   ['textBorder', 'borderColor', el => el.value], ['textOpacity', 'opacity', el => Number(el.value) / 100],
 ]) elements[id].addEventListener('change', () => { editor.setTextStyle({ [key]: value(elements[id]) }); updateInterface(editor.state); });
+elements.startCrop.addEventListener('click', () => editor.startCrop());
+elements.confirmCrop.addEventListener('click', () => editor.confirmCrop());
+elements.cancelCrop.addEventListener('click', () => editor.cancelCrop());
 elements.editText.addEventListener('click', () => editor.editText());
 elements.deleteText.addEventListener('click', () => editor.deleteText());
 

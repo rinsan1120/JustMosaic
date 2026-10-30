@@ -1,6 +1,7 @@
-import { isTextObject, TEXT_DEFAULTS, layoutText, textFont, fitTextObject } from './text.js?v=8';
-import { bounds, handles, contains, editObject } from "./objects.js?v=8";
-import { renderOperations, resolveOperations } from "./mosaic.js?v=8";
+import { imageBounds, createImageCanvas, cropCanvas } from './scene.js?v=9';
+import { isTextObject, TEXT_DEFAULTS, layoutText, textFont, fitTextObject } from './text.js?v=9';
+import { bounds, handles, contains, editObject } from "./objects.js?v=9";
+import { renderOperations, resolveOperations } from "./mosaic.js?v=9";
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
@@ -45,9 +46,12 @@ export class MosaicEditor {
   }
 
   get hasImage() { return Boolean(this.state.sourceImage); }
+  get viewBounds() { return imageBounds(this.state); }
   get displayScale() { return this.fitScale * this.state.zoom; }
 
   setImage(image) {
+    this.cancelCrop(false);
+    this.imageLayer = null;
     this.cancelDrawHold();
     this.activeDraft = null;
     this.selectedIndex = null;
@@ -61,6 +65,8 @@ export class MosaicEditor {
   }
 
   clearImage() {
+    this.cancelCrop(false);
+    this.imageLayer = null;
     this.cancelDrawHold();
     this.selectedIndex = null;
     this.state.sourceImage = null;
@@ -73,6 +79,7 @@ export class MosaicEditor {
   }
 
   setTool(tool) {
+    this.cancelCrop(false);
     this.cancelDrawHold();
     this.activeDraft = null;
     this.selectedIndex = null;
@@ -157,7 +164,7 @@ export class MosaicEditor {
         padding: `${layout.padding * this.displayScale}px`,
         paddingTop: `${(layout.padding + layout.verticalOffset) * this.displayScale}px`,
         font: textFont(shape, Math.max(16, layout.size * this.displayScale)),
-        textAlign: shape.align, color: shape.textColor, background: shape.background,
+        textAlign: shape.align, color: shape.textColor, background: shape.type === 'textAnnotation' ? 'transparent' : shape.background,
       });
     };
     position();
@@ -189,6 +196,90 @@ export class MosaicEditor {
     return -1;
   }
 
+  visibleHandles(object) {
+    const view = this.viewBounds;
+    const cropped = view.width !== this.state.imageWidth || view.height !== this.state.imageHeight;
+    const margin = cropped ? Math.min(6 / this.displayScale, view.width / 4, view.height / 4) : 0;
+    return handles(object).map(handle => ({ ...handle, originalX: handle.x, originalY: handle.y,
+      x: cropped ? Math.max(view.x + margin, Math.min(view.x + view.width - margin, handle.x)) : handle.x,
+      y: cropped ? Math.max(view.y + margin, Math.min(view.y + view.height - margin, handle.y)) : handle.y }));
+  }
+
+  startCrop() {
+    if (!this.hasImage) return;
+    this.cancelDrawHold(); this.activeDraft = null; this.selectedIndex = null;
+    this.cropMode = true; this.cropSelection = null; this.setHoverPointer(null);
+    this.requestRender(); this.notifyState();
+  }
+
+  cancelCrop(notify = true) {
+    this.cropMode = false; this.cropSelection = null;
+    if (this.activeDraft?.type === 'cropDraft') this.activeDraft = null;
+    if (notify) { this.requestRender(); this.notifyState(); }
+  }
+
+  confirmCrop() {
+    if (!this.cropMode || !this.cropSelection || this.activeDraft) return;
+    const selection = this.cropSelection, view = this.viewBounds;
+    if (selection.width < 1 || selection.height < 1) return;
+    const x = Math.max(view.x, Math.floor(selection.x)), y = Math.max(view.y, Math.floor(selection.y));
+    const right = Math.min(view.x + view.width, Math.ceil(selection.x + selection.width));
+    const bottom = Math.min(view.y + view.height, Math.ceil(selection.y + selection.height));
+    if (right <= x || bottom <= y) return;
+    this.cancelCrop(false); this.selectedIndex = null;
+    this.state.operations.push({ type: 'crop', rect: { x, y, width: right - x, height: bottom - y } });
+    this.state.redoStack = []; this.resetView(); this.notifyState();
+  }
+
+  cropHandles(rect) {
+    return [{ id: 'tl', x: rect.x, y: rect.y }, { id: 'tr', x: rect.x + rect.width, y: rect.y },
+      { id: 'bl', x: rect.x, y: rect.y + rect.height }, { id: 'br', x: rect.x + rect.width, y: rect.y + rect.height }];
+  }
+
+  beginCropGesture(point, pointerType) {
+    point = { x: Math.round(point.x), y: Math.round(point.y) };
+    const original = this.cropSelection;
+    const tolerance = (pointerType === 'touch' ? 22 : 10) / this.displayScale;
+    const handle = original && this.cropHandles(original).find(h => Math.hypot(h.x - point.x, h.y - point.y) <= tolerance)?.id;
+    const inside = original && point.x >= original.x && point.x <= original.x + original.width && point.y >= original.y && point.y <= original.y + original.height;
+    this.activeDraft = { type: 'cropDraft', start: point, original, handle: handle || (inside ? 'move' : null),
+      operation: handle || inside ? original : { x: point.x, y: point.y, width: 0, height: 0 } };
+    this.requestRender();
+  }
+
+  cropGestureRect(draft, point) {
+    point = { x: Math.round(point.x), y: Math.round(point.y) };
+    const { original, handle, start } = draft;
+    if (!handle) return { x: Math.min(start.x, point.x), y: Math.min(start.y, point.y), width: Math.abs(point.x - start.x), height: Math.abs(point.y - start.y) };
+    if (handle === 'move') return editObject(original, start, point, null, this.state.imageWidth, this.state.imageHeight, this.viewBounds);
+    const left = handle.endsWith('l') ? Math.min(point.x, original.x + original.width - 1) : original.x;
+    const right = handle.endsWith('r') ? Math.max(point.x, original.x + 1) : original.x + original.width;
+    const top = handle.startsWith('t') ? Math.min(point.y, original.y + original.height - 1) : original.y;
+    const bottom = handle.startsWith('b') ? Math.max(point.y, original.y + 1) : original.y + original.height;
+    return { x: left, y: top, width: right - left, height: bottom - top };
+  }
+
+  renderCrop(ctx, transform, ratio) {
+    const selection = this.activeDraft?.type === 'cropDraft' ? this.activeDraft.operation : this.cropSelection;
+    if (!selection) return;
+    const view = this.viewBounds, s = transform.scale;
+    const x = transform.offsetX + selection.x * s, y = transform.offsetY + selection.y * s;
+    const vx = transform.offsetX + view.x * s, vy = transform.offsetY + view.y * s;
+    const width = selection.width * s, height = selection.height * s;
+    ctx.save(); ctx.fillStyle = 'rgba(0,0,0,.5)';
+    ctx.fillRect(vx, vy, view.width * s, y - vy);
+    ctx.fillRect(vx, y + height, view.width * s, vy + view.height * s - y - height);
+    ctx.fillRect(vx, y, x - vx, height);
+    ctx.fillRect(x + width, y, vx + view.width * s - x - width, height);
+    ctx.strokeStyle = '#4d7cff'; ctx.lineWidth = 2 * ratio; ctx.strokeRect(x, y, width, height);
+    for (const handle of this.cropHandles(selection)) {
+      ctx.fillStyle = '#fff'; const hx = transform.offsetX + handle.x * s, hy = transform.offsetY + handle.y * s;
+      ctx.fillRect(hx - 6 * ratio, hy - 6 * ratio, 12 * ratio, 12 * ratio);
+      ctx.strokeRect(hx - 6 * ratio, hy - 6 * ratio, 12 * ratio, 12 * ratio);
+    }
+    ctx.restore();
+  }
+
   setAnnotationStrokeWidth(value) {
     const strokeWidth = Number(value);
     this.state.annotationStrokeWidth = strokeWidth;
@@ -208,23 +299,27 @@ export class MosaicEditor {
   }
 
   undo() {
+    if (this.cropMode) { this.cancelCrop(); return; }
     this.cancelDrawHold();
     this.activeDraft = null;
     this.selectedIndex = null;
     const operation = this.state.operations.pop();
     if (!operation) return;
     this.state.redoStack.push(operation);
+    if (operation.type === 'crop') this.resetView();
     this.requestRender();
     this.notifyState();
   }
 
   redo() {
+    if (this.cropMode) { this.cancelCrop(); return; }
     this.cancelDrawHold();
     this.activeDraft = null;
     this.selectedIndex = null;
     const operation = this.state.redoStack.pop();
     if (!operation) return;
     this.state.operations.push(operation);
+    if (operation.type === 'crop') this.resetView();
     this.requestRender();
     this.notifyState();
   }
@@ -232,8 +327,8 @@ export class MosaicEditor {
   resetView() {
     if (!this.hasImage || !this.canvas.clientWidth || !this.canvas.clientHeight) return;
     this.fitScale = Math.min(
-      this.canvas.clientWidth / this.state.imageWidth,
-      this.canvas.clientHeight / this.state.imageHeight,
+      this.canvas.clientWidth / this.viewBounds.width,
+      this.canvas.clientHeight / this.viewBounds.height,
     ) * 0.94;
     this.state.zoom = 1;
     this.centerImage();
@@ -242,10 +337,10 @@ export class MosaicEditor {
   }
 
   centerImage() {
-    const width = this.state.imageWidth * this.displayScale;
-    const height = this.state.imageHeight * this.displayScale;
-    this.state.offsetX = (this.canvas.clientWidth - width) / 2;
-    this.state.offsetY = (this.canvas.clientHeight - height) / 2;
+    const width = this.viewBounds.width * this.displayScale;
+    const height = this.viewBounds.height * this.displayScale;
+    this.state.offsetX = (this.canvas.clientWidth - width) / 2 - this.viewBounds.x * this.displayScale;
+    this.state.offsetY = (this.canvas.clientHeight - height) / 2 - this.viewBounds.y * this.displayScale;
   }
 
   zoomBy(factor, centerX = this.canvas.clientWidth / 2, centerY = this.canvas.clientHeight / 2) {
@@ -269,13 +364,14 @@ export class MosaicEditor {
   constrainPan() {
     const viewportWidth = this.canvas.clientWidth;
     const viewportHeight = this.canvas.clientHeight;
-    const imageWidth = this.state.imageWidth * this.displayScale;
-    const imageHeight = this.state.imageHeight * this.displayScale;
+    const imageWidth = this.viewBounds.width * this.displayScale;
+    const imageHeight = this.viewBounds.height * this.displayScale;
     const margin = 50;
-    if (imageWidth <= viewportWidth) this.state.offsetX = (viewportWidth - imageWidth) / 2;
-    else this.state.offsetX = Math.min(margin, Math.max(viewportWidth - imageWidth - margin, this.state.offsetX));
-    if (imageHeight <= viewportHeight) this.state.offsetY = (viewportHeight - imageHeight) / 2;
-    else this.state.offsetY = Math.min(margin, Math.max(viewportHeight - imageHeight - margin, this.state.offsetY));
+    const originX = this.viewBounds.x * this.displayScale, originY = this.viewBounds.y * this.displayScale;
+    if (imageWidth <= viewportWidth) this.state.offsetX = (viewportWidth - imageWidth) / 2 - originX;
+    else this.state.offsetX = Math.min(margin, Math.max(viewportWidth - imageWidth - margin, this.state.offsetX + originX)) - originX;
+    if (imageHeight <= viewportHeight) this.state.offsetY = (viewportHeight - imageHeight) / 2 - originY;
+    else this.state.offsetY = Math.min(margin, Math.max(viewportHeight - imageHeight - margin, this.state.offsetY + originY)) - originY;
   }
 
   imagePoint(clientX, clientY, clamp = false) {
@@ -283,8 +379,8 @@ export class MosaicEditor {
     let x = (clientX - rect.left - this.state.offsetX) / this.displayScale;
     let y = (clientY - rect.top - this.state.offsetY) / this.displayScale;
     if (clamp) {
-      x = Math.max(0, Math.min(this.state.imageWidth, x));
-      y = Math.max(0, Math.min(this.state.imageHeight, y));
+      x = Math.max(this.viewBounds.x, Math.min(this.viewBounds.x + this.viewBounds.width, x));
+      y = Math.max(this.viewBounds.y, Math.min(this.viewBounds.y + this.viewBounds.height, y));
     }
     // Canvas clipping uses floor/ceil: floating point noise at an integer boundary
     // must not change the sampled mosaic region between devices or exports.
@@ -292,7 +388,8 @@ export class MosaicEditor {
   }
 
   isInside(point) {
-    return point.x >= 0 && point.y >= 0 && point.x <= this.state.imageWidth && point.y <= this.state.imageHeight;
+    const view = this.viewBounds;
+    return point.x >= view.x && point.y >= view.y && point.x <= view.x + view.width && point.y <= view.y + view.height;
   }
 
   commit(operation) {
@@ -317,7 +414,7 @@ export class MosaicEditor {
     this.canvas.height = Math.max(1, Math.round(rect.height * ratio));
     if (this.hasImage) {
       const previousFit = this.fitScale;
-      this.fitScale = Math.min(rect.width / this.state.imageWidth, rect.height / this.state.imageHeight) * 0.94;
+      this.fitScale = Math.min(rect.width / this.viewBounds.width, rect.height / this.viewBounds.height) * 0.94;
       if (!oldWidth || !oldHeight || this.state.zoom === 1) this.centerImage();
       else {
         this.state.offsetX += (rect.width - oldWidth) / 2;
@@ -350,20 +447,30 @@ export class MosaicEditor {
       imageWidth: this.state.imageWidth,
       imageHeight: this.state.imageHeight,
     };
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(
-      this.state.sourceImage,
-      transform.offsetX,
-      transform.offsetY,
-      this.state.imageWidth * transform.scale,
-      this.state.imageHeight * transform.scale,
-    );
     const history = this.activeDraft?.type === "shapeEditDraft"
       ? [...this.state.operations, { type: "shapeEdit", target: this.activeDraft.target, operation: this.activeDraft.operation }]
       : this.state.operations;
-    renderOperations(ctx, this.canvas, history, transform);
-    if (this.activeDraft?.type === "brushMosaic") renderOperations(ctx, this.canvas, [this.activeDraft], transform);
+    const view = this.viewBounds;
+    ctx.save(); ctx.beginPath();
+    ctx.rect(transform.offsetX + view.x * transform.scale, transform.offsetY + view.y * transform.scale, view.width * transform.scale, view.height * transform.scale);
+    ctx.clip();
+    ctx.imageSmoothingEnabled = true;
+    if (this.state.operations.some(entry => entry.type === 'crop')) {
+      const layerHistory = this.activeDraft?.type === 'brushMosaic' ? [...history, this.activeDraft] : history;
+      const key = JSON.stringify(layerHistory);
+      if (!this.imageLayer || this.imageLayerKey !== key) {
+        this.imageLayer = cropCanvas(createImageCanvas(this.state, layerHistory), view); this.imageLayerKey = key;
+      }
+      ctx.drawImage(this.imageLayer, transform.offsetX + view.x * transform.scale,
+        transform.offsetY + view.y * transform.scale, view.width * transform.scale, view.height * transform.scale);
+    } else {
+      ctx.drawImage(this.state.sourceImage, transform.offsetX, transform.offsetY, this.state.imageWidth * transform.scale, this.state.imageHeight * transform.scale);
+      renderOperations(ctx, this.canvas, history, transform);
+      if (this.activeDraft?.type === 'brushMosaic') renderOperations(ctx, this.canvas, [this.activeDraft], transform);
+    }
     this.renderOverlay(ctx, transform, ratio);
+    if (this.cropMode) this.renderCrop(ctx, transform, ratio);
+    ctx.restore();
   }
 
   renderOverlay(ctx, transform, ratio) {
@@ -398,7 +505,7 @@ export class MosaicEditor {
       }
       if (!isRectangleDraft) {
         ctx.setLineDash([]);
-        for (const handle of handles(rectangle)) {
+        for (const handle of this.visibleHandles(rectangle)) {
           const hx = transform.offsetX + handle.x * transform.scale;
           const hy = transform.offsetY + handle.y * transform.scale;
           ctx.fillStyle = "#fff";
@@ -488,18 +595,19 @@ export class MosaicEditor {
     if (event.button !== 0) return;
     const point = this.imagePoint(event.clientX, event.clientY);
     if (!this.isInside(point)) return;
+    if (this.cropMode) { this.beginCropGesture(point, event.pointerType); return; }
     if (!event.altKey) {
       const operations = resolveOperations(this.state.operations);
       const tolerance = (event.pointerType === "touch" ? 22 : 10) / this.displayScale;
       const selected = operations[this.selectedIndex];
-      const handle = selected && handles(selected).find(h => Math.hypot(point.x - h.x, point.y - h.y) <= tolerance);
+      const handle = selected && this.visibleHandles(selected).find(h => Math.hypot(point.x - h.x, point.y - h.y) <= tolerance);
       // Match rendering: annotations are above mosaics, then latest creation first.
       const indices = operations.map((object, index) => object ? index : null).filter(index => index != null)
         .sort((a, b) => Number(operations[b].type.endsWith("Annotation")) - Number(operations[a].type.endsWith("Annotation")) || b - a);
       const index = handle ? this.selectedIndex : indices.find(i => contains(operations[i], point, tolerance));
       this.selectedIndex = index ?? null;
       if (index != null) {
-        this.activeDraft = { type: "shapeEditDraft", target: index, start: point, original: operations[index], operation: operations[index], handle: handle?.id };
+        this.activeDraft = { type: "shapeEditDraft", target: index, start: point, original: operations[index], operation: operations[index], handle: handle?.id, handleOffset: handle && { x: handle.originalX - handle.x, y: handle.originalY - handle.y } };
         if (!handle) {
           const draft = this.activeDraft;
           this.drawHoldTimer = setTimeout(() => {
@@ -526,7 +634,7 @@ export class MosaicEditor {
     if (this.state.tool === "ellipseMosaic") this.activeDraft = { type: "ellipseMosaicDraft", start: point, end: point };
     else if (this.state.tool === "rectangle") this.activeDraft = { type: "rectangleDraft", start: point, end: point };
     else if (this.state.tool === "brush") this.activeDraft = { type: "brushMosaic", points: [point], brushSize: this.state.brushSize, blockSize: this.state.mosaicSize };
-    else if (["textBox", "speech"].includes(this.state.tool)) this.activeDraft = { type: "textDraft", start: point, end: point, tool: this.state.tool };
+    else if (["textBox", "speech", "text"].includes(this.state.tool)) this.activeDraft = { type: "textDraft", start: point, end: point, tool: this.state.tool };
     else this.activeDraft = {
       type: this.state.tool === "arrow" ? "arrowDraft" : this.state.tool === "rectangleAnnotation" ? "rectangleAnnotationDraft" : "ellipseDraft",
       start: point,
@@ -541,7 +649,7 @@ export class MosaicEditor {
   textDraftObject(draft) {
     const x = Math.min(draft.start.x, draft.end.x), y = Math.min(draft.start.y, draft.end.y);
     const width = Math.abs(draft.end.x - draft.start.x), height = Math.abs(draft.end.y - draft.start.y);
-    return { type: draft.tool === 'speech' ? 'speechAnnotation' : 'textBoxAnnotation', x, y, width, height,
+    return { type: draft.tool === 'speech' ? 'speechAnnotation' : draft.tool === 'text' ? 'textAnnotation' : 'textBoxAnnotation', x, y, width, height,
       ...this.state.textStyle, ...(draft.tool === 'speech' ? { tailX: width * .75, tailY: Math.min(height + 20, this.state.imageHeight - y) } : {}) };
   }
 
@@ -578,14 +686,17 @@ export class MosaicEditor {
     }
     if (!this.activeDraft) return;
     const point = this.imagePoint(event.clientX, event.clientY, true);
-    if (this.activeDraft.type === "shapeEditDraft") {
+    if (this.activeDraft.type === "cropDraft") {
+      this.activeDraft.operation = this.cropGestureRect(this.activeDraft, point);
+    } else if (this.activeDraft.type === "shapeEditDraft") {
       const { original, start, handle } = this.activeDraft;
       if (!handle && !this.activeDraft.moved) {
         if (Math.hypot(point.x - start.x, point.y - start.y) * this.displayScale < DRAG_THRESHOLD) return;
         this.activeDraft.moved = true;
         this.cancelDrawHold();
       }
-      this.activeDraft.operation = editObject(original, start, point, handle, this.state.imageWidth, this.state.imageHeight);
+      const adjusted = handle ? { x: point.x + (this.activeDraft.handleOffset?.x || 0), y: point.y + (this.activeDraft.handleOffset?.y || 0) } : point;
+      this.activeDraft.operation = editObject(original, start, adjusted, handle, this.state.imageWidth, this.state.imageHeight, this.viewBounds);
       if (isTextObject(original)) this.activeDraft.operation = fitTextObject(this.activeDraft.operation, this.state.imageWidth, this.state.imageHeight);
     } else if (this.activeDraft.type === "textDraft" || this.activeDraft.type === "ellipseMosaicDraft" || this.activeDraft.type === "rectangleAnnotationDraft" || this.activeDraft.type === "rectangleDraft" || this.activeDraft.type === "arrowDraft" || this.activeDraft.type === "ellipseDraft") this.activeDraft.end = point;
     else {
@@ -614,7 +725,10 @@ export class MosaicEditor {
       this.requestRender();
       return;
     }
-    if (this.activeDraft.type === "shapeEditDraft") {
+    if (this.activeDraft.type === 'cropDraft') {
+      this.cropSelection = this.activeDraft.operation;
+      this.activeDraft = null; this.requestRender(); this.notifyState();
+    } else if (this.activeDraft.type === "shapeEditDraft") {
       const { target, operation, original } = this.activeDraft;
       if (JSON.stringify(operation) !== JSON.stringify(original)) this.commit({ type: "shapeEdit", target, operation });
       else { this.activeDraft = null; this.requestRender(); }
@@ -643,6 +757,11 @@ export class MosaicEditor {
 
   handleKeyDown(event) {
     if (event.target?.closest?.("input, textarea, select, [contenteditable]")) return;
+    if (this.cropMode) {
+      if (event.key === 'Escape') { event.preventDefault(); this.cancelCrop(); }
+      if (event.key === 'Enter') { event.preventDefault(); this.confirmCrop(); }
+      if (event.key !== ' ' && event.code !== 'Space') return;
+    }
     if (event.key === "Delete" || event.key === "Backspace") { if (isTextObject(this.selectedText())) { event.preventDefault(); this.deleteText(); } }
     if (event.code === "Space" && !event.repeat) { this.spacePressed = true; event.preventDefault(); }
   }
@@ -656,7 +775,7 @@ export class MosaicEditor {
 
   updateHoverPointer(event) {
     const supportsHover = event.pointerType === "mouse" || event.pointerType === "pen";
-    if (!supportsHover || !this.hasImage || this.state.tool !== "brush" || this.panStart || this.pinch) {
+    if (!supportsHover || !this.hasImage || this.cropMode || this.state.tool !== "brush" || this.panStart || this.pinch) {
       this.setHoverPointer(null);
       return;
     }

@@ -97,7 +97,7 @@ try {
       if (after.equals(await save())) throw new Error(`${tool}: long-press overlap creation failed`);
       console.log(`PASS: ${tool}/${mobile ? 'native touch' : 'native mouse'}: 同じツールで描画・直接移動・Undo/Redo・保存${tool !== 'brush' ? '・サイズ変更' : ''}・長押し重ね描き`);
     }
-    for (const tool of ['speech', 'textBox']) {
+    for (const tool of ['speech', 'textBox', 'text']) {
       await page.locator('#fileInput').setInputFiles({ name: 'text.png', mimeType: 'image/png', buffer: Buffer.from(image, 'base64') });
       await page.locator(`[data-tool="${tool}"]`).click();
       await page.locator('#fontMode').selectOption('auto');
@@ -174,6 +174,85 @@ try {
       await page.locator('#undo').click();
       if (!styled.equals(await save())) throw new Error(`${tool}: delete Undo failed`);
       console.log(`PASS: ${tool}/${mobile ? 'native touch' : 'native mouse'}: 文字入力・改行・Escape・手動サイズ・太字・揃え・個別削除・Undo/Redo・保存`);
+    }
+    const assertCroppedPNG = async (full, cropped, rect) => {
+      const matches = await page.evaluate(async ({ full, cropped, rect }) => {
+        const decode = async value => createImageBitmap(new Blob([Uint8Array.from(atob(value), c => c.charCodeAt(0))], { type: 'image/png' }));
+        const before = await decode(full), after = await decode(cropped);
+        const c = document.createElement('canvas'); c.width = before.width; c.height = before.height;
+        const ctx = c.getContext('2d'); ctx.drawImage(before, 0, 0);
+        const expected = ctx.getImageData(rect.x, rect.y, rect.width, rect.height).data;
+        c.width = after.width; c.height = after.height; ctx.drawImage(after, 0, 0);
+        const actual = ctx.getImageData(0, 0, after.width, after.height).data;
+        const ok = after.width === rect.width && after.height === rect.height && expected.length === actual.length && expected.every((v, i) => v === actual[i]);
+        before.close(); after.close(); return ok;
+      }, { full: full.toString('base64'), cropped: cropped.toString('base64'), rect });
+      if (!matches) throw new Error('Native crop PNG must exactly match the selected original pixels');
+    };
+    for (const tool of ['brush', 'speech', 'textBox', 'text']) {
+      await page.locator('#fileInput').setInputFiles({ name: 'crop.png', mimeType: 'image/png', buffer: Buffer.from(image, 'base64') });
+      await page.locator(`[data-tool="${tool}"]`).click();
+      if (tool !== 'brush') {
+        await page.locator('#fontMode').selectOption('auto');
+        if (tool === 'text' && (await page.locator('#textBackground').isVisible() || await page.locator('#textBorder').isVisible())) throw new Error('Text-only tool must hide background and border controls');
+      }
+      const canvas = page.locator('#editorCanvas');
+      const screen = async (x, y, rect = { x: 0, y: 0, width: 200, height: 100 }, zoom = 1) => {
+        await canvas.scrollIntoViewIfNeeded();
+        const box = await canvas.boundingBox();
+        const scale = Math.min(box.width / rect.width, box.height / rect.height) * .94 * zoom;
+        return { x: box.x + (box.width - rect.width * scale) / 2 + (x - rect.x) * scale, y: box.y + (box.height - rect.height * scale) / 2 + (y - rect.y) * scale };
+      };
+      await drag(await screen(25, 15), await screen(85, 55));
+      const original = await save();
+      await page.locator('#startCrop').click();
+      await drag(await screen(40, 20), await screen(160, 90));
+      await drag(await screen(100, 55), await screen(105, 55));
+      await drag(await screen(165, 90), await screen(170, 95));
+      if (await page.locator('#cropSize').textContent() !== '125 × 75 px') throw new Error(`${tool}: native crop move/resize failed (${await page.locator("#cropSize").textContent()})`);
+      await page.locator('#cancelCrop').click();
+      if (!original.equals(await save())) throw new Error(`${tool}: crop cancel changed PNG`);
+      await page.locator('#startCrop').click();
+      await drag(await screen(40, 20), await screen(160, 90));
+      await page.locator('#confirmCrop').click();
+      const rect = { x: 40, y: 20, width: 120, height: 70 }, cropped = await save();
+      await assertCroppedPNG(original, cropped, rect);
+      await page.locator('#undo').click();
+      if (!original.equals(await save())) throw new Error(`${tool}: crop Undo did not restore the full image`);
+      await page.locator('#redo').click();
+      if (!cropped.equals(await save())) throw new Error(`${tool}: crop Redo failed`);
+      await page.locator('#zoomIn').click();
+      await drag(await screen(55, 35, rect, 1.25), await screen(65, 40, rect, 1.25));
+      const moved = await save();
+      if (moved.equals(cropped)) throw new Error(`${tool}: native direct move after crop failed`);
+      await page.locator('#undo').click();
+      if (!cropped.equals(await save())) throw new Error(`${tool}: post-crop move Undo failed`);
+      await page.locator('#redo').click();
+      if (!moved.equals(await save())) throw new Error(`${tool}: post-crop move Redo failed`);
+      await page.locator('#zoomReset').click();
+      if (tool !== 'brush') {
+        await drag(await screen(70, 40, rect), await screen(70, 40, rect));
+        await page.locator('#editText').click();
+        await page.locator('.canvas-text-input').fill('切り抜き後の編集');
+        await page.locator('.text-input-done').click();
+        const edited = await save();
+        if (edited.equals(moved)) throw new Error(`${tool}: post-crop text edit failed`);
+        await page.locator('#deleteText').click();
+        if (edited.equals(await save())) throw new Error(`${tool}: post-crop delete failed`);
+        await page.locator('#undo').click();
+        if (!edited.equals(await save())) throw new Error(`${tool}: post-crop delete Undo failed`);
+      }
+      const beforeNested = await save();
+      await page.locator('#startCrop').click();
+      await drag(await screen(60, 30, rect), await screen(140, 80, rect));
+      await page.locator('#confirmCrop').click();
+      const nested = await save();
+      await assertCroppedPNG(beforeNested, nested, { x: 20, y: 10, width: 80, height: 50 });
+      await page.locator('#undo').click();
+      if (!beforeNested.equals(await save())) throw new Error(`${tool}: nested crop Undo failed`);
+      await page.locator('#redo').click();
+      if (!nested.equals(await save())) throw new Error(`${tool}: nested crop Redo failed`);
+      console.log(`PASS: ${tool}/${mobile ? 'native touch' : 'native mouse'}: トリミング指定・移動・サイズ変更・確定・キャンセル・保存全画素一致・Undo/Redo・ズーム後の編集・再トリミング`);
     }
     if (process.env.EDITOR_SCREENSHOTS) {
       await page.locator('#editorCanvas').scrollIntoViewIfNeeded();
