@@ -10,7 +10,7 @@
     <meta name="description" content="画像をアップロードせず、ブラウザ内だけでモザイク加工できるツール">
     <meta name="theme-color" content="#f5f7fb">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23192439'/%3E%3Cpath fill='%23fff' d='M7 7h8v8H7zm10 0h8v8h-8zM7 17h8v8H7z'/%3E%3Cpath fill='%234d7cff' d='M17 17h8v8h-8z'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="css/style.css?v=6">
+    <link rel="stylesheet" href="css/style.css?v=7">
     <title>JustMosaic!</title>
   </head>
   <body>
@@ -102,10 +102,12 @@
                   <button class="tool-button" type="button" data-tool="arrow" aria-pressed="false">
                     <span class="arrow-icon" aria-hidden="true"></span>矢印
                   </button>
+                  <button class="tool-button" type="button" data-tool="speech" aria-pressed="false">吹き出し</button>
+                  <button class="tool-button" type="button" data-tool="textBox" aria-pressed="false">テキスト枠</button>
                 </div>
               </div>
 
-              <div class="annotation-settings">
+              <div id="shapeSettings" class="annotation-settings">
                 <fieldset class="color-setting">
                   <legend>色</legend>
                   <div class="color-options">
@@ -122,6 +124,25 @@
               </div>
             </section>
           </div>
+
+          <section id="textSettings" class="text-settings" aria-label="吹き出し・テキスト枠の設定" hidden>
+            <p id="textStatus">空白からドラッグして配置。文字の編集はダブルクリック、または「文字を編集」。</p>
+            <div class="text-fields">
+              <label>文字サイズ<select id="fontMode"><option value="auto">自動（全文を表示）</option><option value="manual">手動</option></select></label>
+              <label>サイズ（px）<input id="fontSize" type="number" min="1" max="1000" value="32" disabled></label>
+              <label class="text-bold"><input id="textBold" type="checkbox">太字</label>
+              <label>文字色<input id="textColor" type="color" value="#192439"></label>
+              <label>文字揃え<select id="textAlign"><option value="left">左揃え</option><option value="center">中央揃え</option><option value="right">右揃え</option></select></label>
+              <label>背景色<input id="textBackground" type="color" value="#ffffff"></label>
+              <label>枠線色<input id="textBorder" type="color" value="#192439"></label>
+              <label>不透明度<input id="textOpacity" type="range" min="0" max="100" value="100" aria-label="注釈の不透明度"></label>
+            </div>
+            <div class="text-actions">
+              <button id="editText" class="button button-secondary" type="button" disabled>文字を編集</button>
+              <button id="deleteText" class="button button-secondary" type="button" disabled>削除</button>
+            </div>
+            <p>しっぽは先端ハンドルをドラッグ。自動では全文が収まる文字サイズに調整し、8px未満になる場合は枠を画像内で拡張します。なお収まらない場合は全文を優先して縮小します。</p>
+          </section>
 
           <div class="action-row">
             <div class="history-block" role="group" aria-label="編集履歴">
@@ -142,6 +163,6 @@
     </div>
 
     <input id="fileInput" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp">
-    <script type="module" src="js/app.js?v=6"></script>
+    <script type="module" src="js/app.js?v=7"></script>
   </body>
 </html>

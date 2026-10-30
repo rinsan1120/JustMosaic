@@ -1,3 +1,4 @@
+import { layoutText, TEXT_DEFAULTS } from '../js/text.js';
 import { DRAWING_TOOLS, bounds, handles, contains } from "../js/objects.js";
 import { renderOperations, resolveOperations } from "../js/mosaic.js";
 import { buildOutputName, exportImage } from "../js/export.js";
@@ -236,6 +237,8 @@ try {
     brush: { type: "brushMosaic", points: [{ x: 25, y: 15 }, { x: 85, y: 55 }], brushSize: 16, blockSize: 20 },
     rectangleAnnotation: { type: "rectangleAnnotation", x: 25, y: 15, width: 60, height: 40, color: "#e53935", strokeWidth: 8 },
     ellipse: { type: "ellipseAnnotation", x: 25, y: 15, width: 60, height: 40, color: "#e53935", strokeWidth: 8 },
+    textBox: { type: "textBoxAnnotation", x: 25, y: 15, width: 60, height: 40, text: 'テキスト', fontMode: 'auto', fontSize: 32, bold: false, textColor: '#192439', align: 'left', background: '#ffffff', borderColor: '#192439', opacity: 1, borderWidth: 2 },
+    speech: { type: "speechAnnotation", x: 25, y: 15, width: 60, height: 40, text: 'テキスト', fontMode: 'auto', fontSize: 32, bold: false, textColor: '#192439', align: 'left', background: '#ffffff', borderColor: '#192439', opacity: 1, borderWidth: 2, tailX: 45, tailY: 60 },
     arrow: { type: "arrowAnnotation", x1: 25, y1: 15, x2: 85, y2: 55, color: "#e53935", strokeWidth: 8 },
   };
   assert(Object.keys(DRAWING_TOOLS).every(tool => fixtures[tool]), "全描画ツールに独立した回帰テストが存在する");
@@ -274,6 +277,7 @@ try {
       drag(currentHandle, end, pointerType);
       const resized = resolveOperations(editor.state.operations)[0];
       const expected = handle.id === "resize" ? { ...before, width: before.width + 15, height: before.height + 8 }
+        : handle.id === "tail" ? { ...before, tailX: end.x - before.x, tailY: end.y - before.y }
         : { ...before, [handle.id === "start" ? "x1" : "x2"]: end.x, [handle.id === "start" ? "y1" : "y2"]: end.y };
       assert(Object.keys(expected).every(k => typeof expected[k] !== "number" || near(expected[k], resized[k])), `${tool}/${pointerType}: サイズ・端点変更座標`);
       editor.undo(); assert(JSON.stringify(resolveOperations(editor.state.operations)[0]) === JSON.stringify(before), `${tool}: サイズUndo`);
@@ -285,6 +289,72 @@ try {
     drag({ x: 95, y: 45 }, { x: 100, y: 50 }, pointerType, true);
     assert(editor.state.operations.length === length && editor.activeDraft === null, "pointercancelで編集を破棄");
   }
+  for (const type of ['textBoxAnnotation', 'speechAnnotation']) {
+    editor.setImage(source);
+    editor.commit({ ...TEXT_DEFAULTS, type, x: 5, y: 5, width: 60, height: 40, ...(type === 'speechAnnotation' ? { tailX: 45, tailY: 60 } : {}) });
+    const text = '日本語 ABC 👨‍👩‍👧‍👦 é ' .repeat(50) + '\n\n明示改行\n末尾';
+    editor.setTextStyle({ text, bold: true, textColor: '#2563eb', background: '#f4b400', borderColor: '#16a34a', align: 'center', opacity: .65 });
+    const styled = editor.selectedText();
+    const layout = layoutText(styled);
+    assert(layout.lines.join('') === text.replaceAll('\n', ''), `${type}: 大量の文字・絵文字・改行で全文を保持`);
+    assert(layout.lines.length * layout.lineHeight <= styled.height - layout.padding * 2, `${type}: 自動で全文の高さが収まる`);
+    const narrow = layoutText({ ...styled, width: 1, height: 1 });
+    assert(narrow.size > 0 && narrow.lines.length * narrow.lineHeight <= 1 - narrow.padding * 2, `${type}: 極小枠でも切り捨てない`);
+    const measurement = document.createElement('canvas').getContext('2d');
+    measurement.font = `700 ${narrow.size}px sans-serif`;
+    assert(narrow.lines.every(line => measurement.measureText(line).width <= .75), `${type}: 極小枠でも横方向に収まる`);
+    editor.undo(); assert(editor.selectedText() == null, `${type}: スタイルUndoで選択解除`);
+    assert(resolveOperations(editor.state.operations)[0].text === 'テキスト', `${type}: 編集内容Undo`);
+    editor.redo(); editor.selectedIndex = 0;
+    await checkExport(pixelsFor([styled]), `${type}: 文字・色・太字・揃え・透明度を保存へ厳密反映`);
+    editor.setTextStyle({ fontMode: 'manual', fontSize: 19 });
+    assert(layoutText(editor.selectedText()).size === 19, `${type}: 手動サイズを保持`);
+    editor.setTextStyle({ text: '短文', fontMode: 'auto' });
+    assert(layoutText(editor.selectedText()).size > layout.size, `${type}: 文字削除で自動拡大`);
+    editor.deleteText(); assert(!resolveOperations(editor.state.operations)[0], `${type}: 個別削除`);
+    editor.undo(); assert(resolveOperations(editor.state.operations)[0].text === '短文', `${type}: 削除Undo`);
+    editor.redo(); assert(!resolveOperations(editor.state.operations)[0], `${type}: 削除Redo`);
+  }
+  for (const pointerType of ['mouse', 'touch']) {
+    editor.setImage(source); editor.commit({ ...fixtures.speech });
+    for (const tip of [{ x: 70, y: 5 }, { x: 140, y: 35 }, { x: 70, y: 95 }, { x: 5, y: 35 }]) {
+      const before = editor.selectedText();
+      drag(handles(before).find(handle => handle.id === 'tail'), tip, pointerType);
+      const expected = { ...fixtures.speech, tailX: tip.x - 25, tailY: tip.y - 15 };
+      assert(equivalent(editor.selectedText(), expected), `speech/${pointerType}: しっぽの上下左右の先端座標`);
+      assert(contains(editor.selectedText(), tip, 0), `speech/${pointerType}: しっぽも選択可能`);
+      await checkExport(pixelsFor([expected]), `speech/${pointerType}: しっぽの方向を保存へ反映`);
+      editor.undo(); editor.redo(); editor.selectedIndex = 0;
+    }
+  }
+  for (const tool of ['textBox', 'speech']) {
+    editor.setImage(source); editor.commit({ ...fixtures[tool] }); editor.state.zoom = 2;
+    drag({ x: 55, y: 35 }, { x: 65, y: 40 });
+    await checkExport(pixelsFor([{ ...fixtures[tool], x: 35, y: 20 }]), `${tool}: ズーム中の直接移動と保存PNG`);
+  }
+  editor.setImage(source);
+  editor.commit({ ...fixtures.textBox, width: 2, height: 2 });
+  assert(editor.selectedText().width >= 32 && editor.selectedText().height >= 24, '自動モードの極小枠を拡張して文字の可読性を優先');
+  editor.setTextStyle({ text: '日本語の説明 ABC\n改行と折り返し', fontMode: 'manual', fontSize: 19 });
+  const manual = editor.selectedText(), manualLayout = layoutText(manual);
+  assert(manual.fontSize === 19 && manual.height > 24 && manual.width <= 200 && manual.height <= 100, '手動サイズは保持して枠を画像内で拡張');
+  assert(manualLayout.lines.length * manualLayout.lineHeight <= manual.height - manualLayout.padding * 2, '手動サイズの通常の説明文も枠内に収める');
+  // Independently paint a fixed text fixture, without calling the text renderer/layout.
+  editor.setImage(source);
+  editor.commit({ ...TEXT_DEFAULTS, type: 'textBoxAnnotation', x: 10, y: 10, width: 100, height: 60,
+    text: 'AB\nC', fontMode: 'manual', fontSize: 12 });
+  const expectedTextCanvas = document.createElement('canvas');
+  expectedTextCanvas.width = 200; expectedTextCanvas.height = 100;
+  const expectedTextContext = expectedTextCanvas.getContext('2d');
+  expectedTextContext.drawImage(source, 0, 0);
+  expectedTextContext.fillStyle = '#ffffff'; expectedTextContext.fillRect(10, 10, 100, 60);
+  expectedTextContext.strokeStyle = '#192439'; expectedTextContext.lineWidth = 2; expectedTextContext.lineJoin = 'round';
+  expectedTextContext.strokeRect(10, 10, 100, 60);
+  expectedTextContext.font = '400 12px sans-serif'; expectedTextContext.textBaseline = 'alphabetic';
+  expectedTextContext.fillStyle = '#192439';
+  expectedTextContext.fillText('AB', 17.5 + Math.max(0, expectedTextContext.measureText('AB').actualBoundingBoxLeft), 28.3);
+  expectedTextContext.fillText('C', 17.5, 46.3);
+  await checkExport(expectedTextContext.getImageData(0, 0, 200, 100).data, '独立した文字位置・サイズ・改行の期待画素と保存PNGが全画素一致');
   editor.setImage(source);
   editor.commit(fixtures.rectangleAnnotation); editor.commit(fixtures.rectangle);
   editor.setTool("rectangle"); drag({ x: 55, y: 35 }, { x: 55, y: 35 });

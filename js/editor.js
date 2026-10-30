@@ -1,5 +1,6 @@
-import { bounds, handles, contains, editObject } from "./objects.js?v=6";
-import { renderOperations, resolveOperations } from "./mosaic.js?v=6";
+import { isTextObject, TEXT_DEFAULTS, layoutText, textFont, fitTextObject } from './text.js';
+import { bounds, handles, contains, editObject } from "./objects.js?v=7";
+import { renderOperations, resolveOperations } from "./mosaic.js?v=7";
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
@@ -23,6 +24,7 @@ export class MosaicEditor {
       brushSize: 80,
       annotationColor: "#e53935",
       annotationStrokeWidth: 8,
+      textStyle: { ...TEXT_DEFAULTS },
       zoom: 1,
       offsetX: 0,
       offsetY: 0,
@@ -39,6 +41,7 @@ export class MosaicEditor {
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(canvas.parentElement);
     this.bindEvents();
+    this.canvas.addEventListener("dblclick", () => this.editText());
   }
 
   get hasImage() { return Boolean(this.state.sourceImage); }
@@ -86,11 +89,11 @@ export class MosaicEditor {
 
     for (const operation of this.state.operations) {
       const shape = operation.type === "shapeEdit" ? operation.operation : operation;
-      if (shape.type.endsWith("Mosaic")) shape.blockSize = blockSize;
+      if (shape?.type.endsWith("Mosaic")) shape.blockSize = blockSize;
     }
     for (const operation of this.state.redoStack) {
       const shape = operation.type === "shapeEdit" ? operation.operation : operation;
-      if (shape.type.endsWith("Mosaic")) shape.blockSize = blockSize;
+      if (shape?.type.endsWith("Mosaic")) shape.blockSize = blockSize;
     }
     if (this.activeDraft?.type === "brushMosaic") this.activeDraft.blockSize = blockSize;
     if (this.activeDraft?.operation?.type.endsWith("Mosaic")) this.activeDraft.operation.blockSize = blockSize;
@@ -101,15 +104,83 @@ export class MosaicEditor {
   setAnnotationColor(value) {
     this.state.annotationColor = value;
     const selected = this.selectedShapeIndex();
-    if (resolveOperations(this.state.operations)[selected]?.type.endsWith("Annotation")) {
+    if (resolveOperations(this.state.operations)[selected]?.type.endsWith("Annotation") && !isTextObject(this.selectedText())) {
       for (const entry of [...this.state.operations, ...this.state.redoStack]) {
         const shape = entry.type === "shapeEdit" ? entry.operation : entry;
-        if (entry === this.state.operations[selected] || entry.target === selected) shape.color = value;
+        if (shape && (entry === this.state.operations[selected] || entry.target === selected)) shape.color = value;
       }
     }
     if (this.activeDraft?.type === "rectangleAnnotationDraft") this.activeDraft.color = value;
     if (this.activeDraft?.operation?.type.endsWith("Annotation")) this.activeDraft.operation.color = value;
     this.requestRender();
+  }
+
+  selectedText() { return resolveOperations(this.state.operations)[this.selectedShapeIndex()]; }
+
+  setTextStyle(patch) {
+    Object.assign(this.state.textStyle, patch);
+    const shape = this.selectedText();
+    if (isTextObject(shape)) this.commit({ type: "shapeEdit", target: this.selectedIndex, operation: { ...shape, ...patch } });
+  }
+
+  deleteText() {
+    if (isTextObject(this.selectedText())) {
+      this.commit({ type: "shapeEdit", target: this.selectedIndex, operation: null });
+      this.selectedIndex = null;
+      this.notifyState();
+    }
+  }
+
+  editText() {
+    const shape = this.selectedText();
+    if (!isTextObject(shape) || this.textInput) return;
+    const target = this.selectedIndex;
+    const input = document.createElement('textarea');
+    input.className = 'canvas-text-input';
+    input.setAttribute('aria-label', '注釈の文字を編集');
+    const done = document.createElement('button');
+    done.className = 'text-input-done button button-primary';
+    done.type = 'button';
+    done.textContent = '文字入力を確定';
+    done.addEventListener('pointerdown', event => event.preventDefault());
+    done.addEventListener('click', () => input.blur());
+    input.value = shape.text;
+    this.textInput = input;
+    this.spacePressed = false;
+    const position = () => {
+      const box = this.canvas.getBoundingClientRect();
+      const layout = layoutText({ ...shape, text: input.value });
+      Object.assign(input.style, {
+        left: `${box.left + (shape.x * this.displayScale) + this.state.offsetX}px`,
+        top: `${box.top + (shape.y * this.displayScale) + this.state.offsetY}px`,
+        width: `${shape.width * this.displayScale}px`, height: `${shape.height * this.displayScale}px`,
+        padding: `${layout.padding * this.displayScale}px`,
+        font: textFont(shape, Math.max(16, layout.size * this.displayScale)),
+        textAlign: shape.align, color: shape.textColor, background: shape.background,
+      });
+    };
+    position();
+    document.body.append(input, done);
+    input.focus(); input.select();
+    let cancelled = false;
+    const finish = () => {
+      window.removeEventListener('resize', position);
+      window.removeEventListener('scroll', position, true);
+      this.textInput = null;
+      input.remove();
+      done.remove();
+      if (!cancelled && input.value !== shape.text) this.commit({ type: 'shapeEdit', target, operation: { ...shape, text: input.value } });
+    };
+    input.addEventListener('input', position);
+    input.addEventListener('blur', finish, { once: true });
+    input.addEventListener('keydown', event => {
+      event.stopPropagation();
+      if (event.isComposing) return;
+      if (event.key === 'Escape') { cancelled = true; input.blur(); }
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); input.blur(); }
+    });
+    window.addEventListener('resize', position);
+    window.addEventListener('scroll', position, true);
   }
 
   selectedShapeIndex() {
@@ -123,11 +194,11 @@ export class MosaicEditor {
 
     for (const operation of this.state.operations) {
       const shape = operation.type === "shapeEdit" ? operation.operation : operation;
-      if (shape.type.endsWith("Annotation")) shape.strokeWidth = strokeWidth;
+      if (shape?.type.endsWith("Annotation") && !isTextObject(shape)) shape.strokeWidth = strokeWidth;
     }
     for (const operation of this.state.redoStack) {
       const shape = operation.type === "shapeEdit" ? operation.operation : operation;
-      if (shape.type.endsWith("Annotation")) shape.strokeWidth = strokeWidth;
+      if (shape?.type.endsWith("Annotation") && !isTextObject(shape)) shape.strokeWidth = strokeWidth;
     }
     if (this.activeDraft?.type === "arrowDraft" || this.activeDraft?.type === "ellipseDraft" || this.activeDraft?.type === "rectangleAnnotationDraft") this.activeDraft.strokeWidth = strokeWidth;
 
@@ -224,6 +295,8 @@ export class MosaicEditor {
   }
 
   commit(operation) {
+    if (operation.type === 'shapeEdit' && isTextObject(operation.operation)) operation = { ...operation, operation: fitTextObject(operation.operation, this.state.imageWidth, this.state.imageHeight) };
+    else if (isTextObject(operation)) operation = fitTextObject(operation, this.state.imageWidth, this.state.imageHeight);
     this.selectedIndex = operation.type === "shapeEdit" ? operation.target : this.state.operations.length;
     this.state.operations.push(operation);
     this.state.redoStack = [];
@@ -335,6 +408,11 @@ export class MosaicEditor {
       ctx.restore();
     }
 
+    if (this.activeDraft?.type === "textDraft") {
+      const object = this.textDraftObject(this.activeDraft);
+      if (object.width >= 1 && object.height >= 1) renderOperations(ctx, this.canvas, [object], transform);
+    }
+
     if (this.activeDraft?.type === "arrowDraft" || this.activeDraft?.type === "ellipseDraft" || this.activeDraft?.type === "rectangleAnnotationDraft") {
       const { start, end, color, strokeWidth } = this.activeDraft;
       const operation = this.activeDraft.type === "arrowDraft"
@@ -429,6 +507,7 @@ export class MosaicEditor {
           }, DRAW_HOLD_MS);
         }
         this.requestRender();
+        this.notifyState();
         return;
       }
     }
@@ -446,6 +525,7 @@ export class MosaicEditor {
     if (this.state.tool === "ellipseMosaic") this.activeDraft = { type: "ellipseMosaicDraft", start: point, end: point };
     else if (this.state.tool === "rectangle") this.activeDraft = { type: "rectangleDraft", start: point, end: point };
     else if (this.state.tool === "brush") this.activeDraft = { type: "brushMosaic", points: [point], brushSize: this.state.brushSize, blockSize: this.state.mosaicSize };
+    else if (["textBox", "speech"].includes(this.state.tool)) this.activeDraft = { type: "textDraft", start: point, end: point, tool: this.state.tool };
     else this.activeDraft = {
       type: this.state.tool === "arrow" ? "arrowDraft" : this.state.tool === "rectangleAnnotation" ? "rectangleAnnotationDraft" : "ellipseDraft",
       start: point,
@@ -454,6 +534,14 @@ export class MosaicEditor {
       strokeWidth: this.state.annotationStrokeWidth,
     };
     this.requestRender();
+    this.notifyState();
+  }
+
+  textDraftObject(draft) {
+    const x = Math.min(draft.start.x, draft.end.x), y = Math.min(draft.start.y, draft.end.y);
+    const width = Math.abs(draft.end.x - draft.start.x), height = Math.abs(draft.end.y - draft.start.y);
+    return { type: draft.tool === 'speech' ? 'speechAnnotation' : 'textBoxAnnotation', x, y, width, height,
+      ...this.state.textStyle, ...(draft.tool === 'speech' ? { tailX: width * .75, tailY: Math.min(height + 20, this.state.imageHeight - y) } : {}) };
   }
 
   onPointerMove(event) {
@@ -497,7 +585,8 @@ export class MosaicEditor {
         this.cancelDrawHold();
       }
       this.activeDraft.operation = editObject(original, start, point, handle, this.state.imageWidth, this.state.imageHeight);
-    } else if (this.activeDraft.type === "ellipseMosaicDraft" || this.activeDraft.type === "rectangleAnnotationDraft" || this.activeDraft.type === "rectangleDraft" || this.activeDraft.type === "arrowDraft" || this.activeDraft.type === "ellipseDraft") this.activeDraft.end = point;
+      if (isTextObject(original)) this.activeDraft.operation = fitTextObject(this.activeDraft.operation, this.state.imageWidth, this.state.imageHeight);
+    } else if (this.activeDraft.type === "textDraft" || this.activeDraft.type === "ellipseMosaicDraft" || this.activeDraft.type === "rectangleAnnotationDraft" || this.activeDraft.type === "rectangleDraft" || this.activeDraft.type === "arrowDraft" || this.activeDraft.type === "ellipseDraft") this.activeDraft.end = point;
     else {
       const last = this.activeDraft.points.at(-1);
       const minimumGap = Math.max(1, this.activeDraft.brushSize / 10);
@@ -528,6 +617,10 @@ export class MosaicEditor {
       const { target, operation, original } = this.activeDraft;
       if (JSON.stringify(operation) !== JSON.stringify(original)) this.commit({ type: "shapeEdit", target, operation });
       else { this.activeDraft = null; this.requestRender(); }
+    } else if (this.activeDraft.type === "textDraft") {
+      const object = this.textDraftObject(this.activeDraft);
+      if (object.width >= 1 && object.height >= 1) this.commit(object);
+      else { this.activeDraft = null; this.requestRender(); this.notifyState(); }
     } else if (this.activeDraft.type === "rectangleDraft" || this.activeDraft.type === "ellipseMosaicDraft") {
       const { start, end } = this.activeDraft;
       const width = Math.abs(end.x - start.x);
@@ -548,6 +641,8 @@ export class MosaicEditor {
   }
 
   handleKeyDown(event) {
+    if (event.target?.closest?.("input, textarea, select, [contenteditable]")) return;
+    if (event.key === "Delete" || event.key === "Backspace") { if (isTextObject(this.selectedText())) { event.preventDefault(); this.deleteText(); } }
     if (event.code === "Space" && !event.repeat) { this.spacePressed = true; event.preventDefault(); }
   }
   handleKeyUp(event) { if (event.code === "Space") this.spacePressed = false; }

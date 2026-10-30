@@ -1,3 +1,4 @@
+import { isTextObject, renderText } from './text.js';
 const makeCanvas = (width, height) => {
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.ceil(width));
@@ -160,6 +161,7 @@ function applyEllipse(context, operation, transform) {
 }
 
 function applyAnnotation(context, operation, transform) {
+  if (isTextObject(operation)) renderText(context, operation, transform);
   if (operation.type === "arrowAnnotation") applyArrow(context, operation, transform);
   if (operation.type === "ellipseAnnotation" || operation.type === "rectangleAnnotation") applyEllipse(context, operation, transform);
 }

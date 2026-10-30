@@ -1,11 +1,11 @@
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { resolve, extname } from 'node:path';
+import { resolve, extname, sep } from 'node:path';
 const root = resolve('.');
 const server = createServer(async (req, res) => {
   const file = resolve(root, '.' + new URL(req.url, 'http://localhost').pathname);
-  if (!file.startsWith(root + '/')) { res.writeHead(403).end(); return; }
+  if (!file.startsWith(root + sep)) { res.writeHead(403).end(); return; }
   try {
     const data = await readFile(file);
     res.setHeader('Content-Type', { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' }[extname(file)] || 'application/octet-stream');
@@ -97,9 +97,66 @@ try {
       if (after.equals(await save())) throw new Error(`${tool}: long-press overlap creation failed`);
       console.log(`PASS: ${tool}/${mobile ? 'native touch' : 'native mouse'}: 同じツールで描画・直接移動・Undo/Redo・保存${tool !== 'brush' ? '・サイズ変更' : ''}・長押し重ね描き`);
     }
+    for (const tool of ['speech', 'textBox']) {
+      await page.locator('#fileInput').setInputFiles({ name: 'text.png', mimeType: 'image/png', buffer: Buffer.from(image, 'base64') });
+      await page.locator(`[data-tool="${tool}"]`).click();
+      await page.locator('#fontMode').selectOption('auto');
+      await page.locator('#textBold').uncheck();
+      await page.locator('#textAlign').selectOption('left');
+      const canvas = page.locator('#editorCanvas');
+      await canvas.scrollIntoViewIfNeeded();
+      const box = await canvas.boundingBox();
+      const scale = Math.min(box.width / 200, box.height / 100) * .94;
+      const point = (x, y) => ({ x: box.x + (box.width - 200 * scale) / 2 + x * scale, y: box.y + (box.height - 100 * scale) / 2 + y * scale });
+      await drag(point(25, 15), point(85, 55));
+      const initial = await save();
+      if (mobile) await page.locator('#editText').click();
+      else {
+        await canvas.scrollIntoViewIfNeeded();
+        const boxNow = await canvas.boundingBox();
+        await page.mouse.dblclick(boxNow.x + (boxNow.width - 200 * scale) / 2 + 55 * scale, boxNow.y + (boxNow.height - 100 * scale) / 2 + 35 * scale);
+      }
+      const input = page.locator('.canvas-text-input');
+      await input.fill('日本語の説明 ABC\n改行と折り返し');
+      await input.press('Space');
+      await input.press('Control+z');
+      if (await page.locator('#undo').isDisabled()) throw new Error(`${tool}: text shortcut changed object history`);
+      await input.press('Space');
+      if (mobile) await page.locator('.text-input-done').click();
+      else await input.press('Control+Enter');
+      const edited = await save();
+      if (initial.equals(edited)) throw new Error(`${tool}: text edit was not saved`);
+      await page.locator('#undo').click();
+      if (!initial.equals(await save())) throw new Error(`${tool}: text Undo failed`);
+      await page.locator('#redo').click();
+      if (!edited.equals(await save())) throw new Error(`${tool}: text Redo failed`);
+      // Select the text object again after history navigation clears selection.
+      await canvas.scrollIntoViewIfNeeded();
+      const current = await canvas.boundingBox();
+      const p = { x: current.x + (current.width - 200 * scale) / 2 + 55 * scale, y: current.y + (current.height - 100 * scale) / 2 + 35 * scale };
+      await drag(p, p);
+      await page.locator('#editText').click();
+      await input.fill('キャンセルする入力');
+      await input.press('Escape');
+      if (!edited.equals(await save())) throw new Error(`${tool}: Escape changed text`);
+      await page.locator('#fontMode').selectOption('manual');
+      await page.locator('#fontSize').fill('19');
+      await page.locator('#fontSize').press('Tab');
+      if (await page.locator('#fontSize').inputValue() !== '19') throw new Error(`${tool}: manual size input failed`);
+      await page.locator('#textBold').check();
+      await page.locator('#textAlign').selectOption('right');
+      const styled = await save();
+      if (edited.equals(styled)) throw new Error(`${tool}: text style did not affect PNG`);
+      await page.locator('#deleteText').click();
+      const deleted = await save();
+      if (styled.equals(deleted)) throw new Error(`${tool}: deletion did not affect PNG`);
+      await page.locator('#undo').click();
+      if (!styled.equals(await save())) throw new Error(`${tool}: delete Undo failed`);
+      console.log(`PASS: ${tool}/${mobile ? 'native touch' : 'native mouse'}: 文字入力・改行・Escape・手動サイズ・太字・揃え・個別削除・Undo/Redo・保存`);
+    }
     if (process.env.EDITOR_SCREENSHOTS) {
       await page.locator('#editorCanvas').scrollIntoViewIfNeeded();
-      await page.screenshot({ path: `/private/tmp/justmosaic-direct-${mobile ? 'mobile' : 'desktop'}.png`, fullPage: true });
+      await page.screenshot({ path: resolve(process.env.EDITOR_SCREENSHOTS, `justmosaic-direct-${mobile ? 'mobile' : 'desktop'}.png`), fullPage: true });
     }
     await page.goto(base + '/tests/mosaic-smoke.html');
     await page.waitForFunction(() => /^(PASS|FAIL)/.test(document.title));

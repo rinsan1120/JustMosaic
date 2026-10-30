@@ -1,7 +1,9 @@
-import { MosaicEditor } from "./editor.js?v=6";
-import { exportImage } from "./export.js?v=6";
+import { isTextObject, layoutText } from './text.js';
+import { MosaicEditor } from "./editor.js?v=7";
+import { exportImage } from "./export.js?v=7";
 
 const elements = Object.fromEntries([
+  "textSettings", "shapeSettings", "textStatus", "fontMode", "fontSize", "textBold", "textColor", "textAlign", "textBackground", "textBorder", "textOpacity", "editText", "deleteText",
   "stage", "dropZone", "editorView", "editorCanvas", "openInitial", "openAnother", "fileInput",
   "loading", "message", "mosaicSize", "mosaicValue", "brushSize", "brushValue", "brushSizeRow",
   "annotationStrokeWidth", "annotationStrokeValue", "undo", "redo", "saveImage", "zoomIn", "zoomOut", "zoomReset", "zoomValue",
@@ -21,6 +23,29 @@ function updateInterface(state) {
   elements.saveImage.disabled = !state.sourceImage;
   elements.zoomValue.value = `${Math.round(state.zoom * 100)}%`;
   elements.zoomValue.textContent = `${Math.round(state.zoom * 100)}%`;
+  const selected = editor.selectedText();
+  const hasText = isTextObject(selected);
+  elements.textSettings.hidden = !hasText && !['speech', 'textBox'].includes(state.tool);
+  elements.shapeSettings.hidden = !elements.textSettings.hidden;
+  const style = hasText ? selected : state.textStyle;
+  elements.fontMode.value = style.fontMode;
+  elements.fontSize.value = style.fontSize;
+  elements.fontSize.disabled = style.fontMode !== 'manual';
+  elements.textBold.checked = style.bold;
+  elements.textColor.value = style.textColor;
+  elements.textAlign.value = style.align;
+  elements.textBackground.value = style.background;
+  elements.textBorder.value = style.borderColor;
+  elements.textOpacity.value = style.opacity * 100;
+  elements.editText.disabled = elements.deleteText.disabled = !hasText;
+  elements.textStatus.textContent = hasText ? '選択中の注釈を編集。ダブルクリックでも文字を編集できます。' : '空白からドラッグして配置。配置後に「文字を編集」で入力できます。';
+  if (hasText && selected.fontMode === 'manual') {
+    const layout = layoutText(selected);
+    if (layout.lines.length * layout.lineHeight > selected.height - layout.padding * 2 || layout.spans.some(span => span.width > selected.width - layout.padding * 2)) {
+      elements.textStatus.textContent = '指定サイズでは画像内に全文が収まりません。「自動」に切り替えるか、文字サイズを小さくしてください。';
+    }
+  }
+
 }
 
 function showMessage(text, success = false) {
@@ -168,6 +193,15 @@ document.querySelectorAll("[data-annotation-color]").forEach((button) => {
   });
 });
 
+for (const [id, key, value] of [
+  ['fontMode', 'fontMode', el => el.value], ['fontSize', 'fontSize', el => Math.max(1, Math.min(1000, Number(el.value) || 32))],
+  ['textBold', 'bold', el => el.checked], ['textColor', 'textColor', el => el.value],
+  ['textAlign', 'align', el => el.value], ['textBackground', 'background', el => el.value],
+  ['textBorder', 'borderColor', el => el.value], ['textOpacity', 'opacity', el => Number(el.value) / 100],
+]) elements[id].addEventListener('change', () => { editor.setTextStyle({ [key]: value(elements[id]) }); updateInterface(editor.state); });
+elements.editText.addEventListener('click', () => editor.editText());
+elements.deleteText.addEventListener('click', () => editor.deleteText());
+
 elements.undo.addEventListener("click", () => editor.undo());
 elements.redo.addEventListener("click", () => editor.redo());
 elements.zoomIn.addEventListener("click", () => editor.zoomIn());
@@ -191,6 +225,7 @@ elements.saveImage.addEventListener("click", async () => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if (event.target.closest?.("input, textarea, select, [contenteditable]")) return;
   const modifier = event.ctrlKey || event.metaKey;
   if (modifier && event.key.toLowerCase() === "z") {
     event.preventDefault();
