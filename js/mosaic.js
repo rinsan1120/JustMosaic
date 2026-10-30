@@ -1,4 +1,4 @@
-import { isTextObject, renderText } from './text.js';
+import { isTextObject, renderText } from './text.js?v=8';
 const makeCanvas = (width, height) => {
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.ceil(width));

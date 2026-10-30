@@ -1,5 +1,5 @@
 export const isTextObject = object => ['textBoxAnnotation', 'speechAnnotation'].includes(object?.type);
-export const TEXT_DEFAULTS = Object.freeze({ text: 'テキスト', fontMode: 'auto', fontSize: 32, bold: false, textColor: '#192439', align: 'left', background: '#ffffff', borderColor: '#192439', opacity: 1, borderWidth: 2 });
+export const TEXT_DEFAULTS = Object.freeze({ text: 'テキスト', fontMode: 'auto', fontSize: 32, bold: false, textColor: '#192439', align: 'left', verticalAlign: 'top', background: '#ffffff', borderColor: '#192439', opacity: 1, borderWidth: 2 });
 let measure;
 export const textFont = (object, size) => `${object.bold ? '700' : '400'} ${size.toFixed(15)}px sans-serif`;
 const segmenter = new Intl.Segmenter('ja', { granularity: 'grapheme' });
@@ -71,7 +71,10 @@ export function layoutText(object) {
     }
     size = low;
   }
-  const result = { size, padding, ...calculate(size) };
+  const calculated = calculate(size);
+  const spareHeight = Math.max(0, height - calculated.lines.length * calculated.lineHeight);
+  const verticalOffset = object.verticalAlign === 'bottom' ? spareHeight : object.verticalAlign === 'middle' ? spareHeight / 2 : 0;
+  const result = { size, padding, ...calculated, verticalOffset };
   layoutCache.set(object, result);
   return result;
 }
@@ -113,7 +116,7 @@ export function renderText(context, object, transform) {
   layout.lines.forEach((line, index) => {
     const span = layout.spans[index];
     const x = object.align === 'center' ? object.x + (object.width - span.width) / 2 : object.align === 'right' ? object.x + object.width - layout.padding - span.width : object.x + layout.padding;
-    context.fillText(line, x - span.left, object.y + layout.padding + layout.ascent + index * layout.lineHeight);
+    context.fillText(line, x - span.left, object.y + layout.padding + layout.verticalOffset + layout.ascent + index * layout.lineHeight);
   });
   context.restore();
 }

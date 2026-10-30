@@ -1,6 +1,6 @@
-import { isTextObject, TEXT_DEFAULTS, layoutText, textFont, fitTextObject } from './text.js';
-import { bounds, handles, contains, editObject } from "./objects.js?v=7";
-import { renderOperations, resolveOperations } from "./mosaic.js?v=7";
+import { isTextObject, TEXT_DEFAULTS, layoutText, textFont, fitTextObject } from './text.js?v=8';
+import { bounds, handles, contains, editObject } from "./objects.js?v=8";
+import { renderOperations, resolveOperations } from "./mosaic.js?v=8";
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 8;
@@ -155,6 +155,7 @@ export class MosaicEditor {
         top: `${box.top + (shape.y * this.displayScale) + this.state.offsetY}px`,
         width: `${shape.width * this.displayScale}px`, height: `${shape.height * this.displayScale}px`,
         padding: `${layout.padding * this.displayScale}px`,
+        paddingTop: `${(layout.padding + layout.verticalOffset) * this.displayScale}px`,
         font: textFont(shape, Math.max(16, layout.size * this.displayScale)),
         textAlign: shape.align, color: shape.textColor, background: shape.background,
       });

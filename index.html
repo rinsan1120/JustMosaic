@@ -10,7 +10,7 @@
     <meta name="description" content="画像をアップロードせず、ブラウザ内だけでモザイク加工できるツール">
     <meta name="theme-color" content="#f5f7fb">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23192439'/%3E%3Cpath fill='%23fff' d='M7 7h8v8H7zm10 0h8v8h-8zM7 17h8v8H7z'/%3E%3Cpath fill='%234d7cff' d='M17 17h8v8h-8z'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="css/style.css?v=7">
+    <link rel="stylesheet" href="css/style.css?v=8">
     <title>JustMosaic!</title>
   </head>
   <body>
@@ -132,7 +132,8 @@
               <label>サイズ（px）<input id="fontSize" type="number" min="1" max="1000" value="32" disabled></label>
               <label class="text-bold"><input id="textBold" type="checkbox">太字</label>
               <label>文字色<input id="textColor" type="color" value="#192439"></label>
-              <label>文字揃え<select id="textAlign"><option value="left">左揃え</option><option value="center">中央揃え</option><option value="right">右揃え</option></select></label>
+              <label>水平揃え<select id="textAlign"><option value="left">左揃え</option><option value="center">中央揃え</option><option value="right">右揃え</option></select></label>
+              <label>垂直揃え<select id="textVerticalAlign"><option value="top">上揃え</option><option value="middle">中央揃え</option><option value="bottom">下揃え</option></select></label>
               <label>背景色<input id="textBackground" type="color" value="#ffffff"></label>
               <label>枠線色<input id="textBorder" type="color" value="#192439"></label>
               <label>不透明度<input id="textOpacity" type="range" min="0" max="100" value="100" aria-label="注釈の不透明度"></label>
@@ -163,6 +164,6 @@
     </div>
 
     <input id="fileInput" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp">
-    <script type="module" src="js/app.js?v=7"></script>
+    <script type="module" src="js/app.js?v=8"></script>
   </body>
 </html>

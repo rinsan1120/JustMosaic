@@ -1,4 +1,4 @@
-import { renderOperations } from "./mosaic.js?v=7";
+import { renderOperations } from "./mosaic.js?v=8";
 
 const MIME_EXTENSIONS = {
   "image/jpeg": "jpg",

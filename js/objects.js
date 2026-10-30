@@ -1,4 +1,4 @@
-import { textOutline } from './text.js';
+import { textOutline } from './text.js?v=8';
 // Every drawable tool must declare its geometry here; tests compare this registry to the UI.
 export const DRAWING_TOOLS = Object.freeze({
   rectangle: { type: 'rectangleMosaic', geometry: 'box' },

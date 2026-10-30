@@ -237,8 +237,8 @@ try {
     brush: { type: "brushMosaic", points: [{ x: 25, y: 15 }, { x: 85, y: 55 }], brushSize: 16, blockSize: 20 },
     rectangleAnnotation: { type: "rectangleAnnotation", x: 25, y: 15, width: 60, height: 40, color: "#e53935", strokeWidth: 8 },
     ellipse: { type: "ellipseAnnotation", x: 25, y: 15, width: 60, height: 40, color: "#e53935", strokeWidth: 8 },
-    textBox: { type: "textBoxAnnotation", x: 25, y: 15, width: 60, height: 40, text: 'テキスト', fontMode: 'auto', fontSize: 32, bold: false, textColor: '#192439', align: 'left', background: '#ffffff', borderColor: '#192439', opacity: 1, borderWidth: 2 },
-    speech: { type: "speechAnnotation", x: 25, y: 15, width: 60, height: 40, text: 'テキスト', fontMode: 'auto', fontSize: 32, bold: false, textColor: '#192439', align: 'left', background: '#ffffff', borderColor: '#192439', opacity: 1, borderWidth: 2, tailX: 45, tailY: 60 },
+    textBox: { type: "textBoxAnnotation", x: 25, y: 15, width: 60, height: 40, text: 'テキスト', fontMode: 'auto', fontSize: 32, bold: false, textColor: '#192439', align: 'left', verticalAlign: 'top', background: '#ffffff', borderColor: '#192439', opacity: 1, borderWidth: 2 },
+    speech: { type: "speechAnnotation", x: 25, y: 15, width: 60, height: 40, text: 'テキスト', fontMode: 'auto', fontSize: 32, bold: false, textColor: '#192439', align: 'left', verticalAlign: 'top', background: '#ffffff', borderColor: '#192439', opacity: 1, borderWidth: 2, tailX: 45, tailY: 60 },
     arrow: { type: "arrowAnnotation", x1: 25, y1: 15, x2: 85, y2: 55, color: "#e53935", strokeWidth: 8 },
   };
   assert(Object.keys(DRAWING_TOOLS).every(tool => fixtures[tool]), "全描画ツールに独立した回帰テストが存在する");
@@ -339,6 +339,61 @@ try {
   const manual = editor.selectedText(), manualLayout = layoutText(manual);
   assert(manual.fontSize === 19 && manual.height > 24 && manual.width <= 200 && manual.height <= 100, '手動サイズは保持して枠を画像内で拡張');
   assert(manualLayout.lines.length * manualLayout.lineHeight <= manual.height - manualLayout.padding * 2, '手動サイズの通常の説明文も枠内に収める');
+  // Paint expected alignment positions independently of the production renderer.
+  const alignedPixels = object => {
+    const c = document.createElement('canvas'); c.width = 200; c.height = 100;
+    const ctx = c.getContext('2d'); ctx.drawImage(source, 0, 0);
+    const { x, y, width: w, height: h } = object;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + h);
+    if (object.type === 'speechAnnotation') {
+      ctx.lineTo(x + w * .65, y + h); ctx.lineTo(x + object.tailX, y + object.tailY); ctx.lineTo(x + w * .35, y + h);
+    }
+    ctx.lineTo(x, y + h); ctx.closePath(); ctx.fillStyle = '#ffffff'; ctx.fill();
+    ctx.strokeStyle = '#192439'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+    // Wrapping/font fitting is separately covered; independently derive all placement coordinates here.
+    const wrapped = layoutText(object);
+    ctx.font = `400 ${wrapped.size.toFixed(15)}px sans-serif`; ctx.fillStyle = '#192439'; ctx.textBaseline = 'alphabetic';
+    const metrics = wrapped.lines.map(line => ctx.measureText(line));
+    const ascent = metrics.reduce((max, m) => Math.max(max, m.actualBoundingBoxAscent), wrapped.size * .9);
+    const descent = metrics.reduce((max, m) => Math.max(max, m.actualBoundingBoxDescent), wrapped.size * .3);
+    const row = Math.max(wrapped.size * 1.5, ascent + descent);
+    const spare = Math.max(0, h - 20 - wrapped.lines.length * row);
+    const shift = { top: 0, middle: spare / 2, bottom: spare }[object.verticalAlign];
+    wrapped.lines.forEach((line, index) => {
+      const m = metrics[index], left = Math.min(0, -m.actualBoundingBoxLeft);
+      const inkWidth = Math.max(m.width, m.actualBoundingBoxRight) - left;
+      const start = { left: x + 10, center: x + (w - inkWidth) / 2, right: x + w - 10 - inkWidth }[object.align];
+      ctx.fillText(line, start - left, y + 10 + shift + ascent + index * row);
+    });
+    return ctx.getImageData(0, 0, 200, 100).data;
+  };
+  for (const type of ['textBoxAnnotation', 'speechAnnotation']) for (const fontMode of ['manual', 'auto']) {
+    for (const align of ['left', 'center', 'right']) for (const verticalAlign of ['top', 'middle', 'bottom']) {
+      editor.setImage(source);
+      const base = { ...TEXT_DEFAULTS, type, x: 10, y: 10, width: 100, height: 80,
+        text: 'WWWWWWWWWWW\nC', fontMode, fontSize: 12, ...(type === 'speechAnnotation' ? { tailX: 75, tailY: 88 } : {}) };
+      editor.commit(base); editor.setTextStyle({ align, verticalAlign });
+      const label = `${type}/${fontMode}/${align}/${verticalAlign}`;
+      const object = editor.selectedText();
+      assert(object.align === align && object.verticalAlign === verticalAlign, `${label}: 揃えを個別履歴へ保持`);
+      assert(layoutText(object).lines.join('') === 'WWWWWWWWWWWC', `${label}: 改行・折り返しで全文を保持`);
+      await checkExport(alignedPixels(object), `${label}: 独立した水平・垂直位置の期待画素と保存PNGが厳密一致`);
+      editor.undo();
+      assert(resolveOperations(editor.state.operations)[0].verticalAlign === 'top', `${label}: 揃えUndo`);
+      editor.redo(); editor.selectedIndex = 0;
+      assert(editor.selectedText().verticalAlign === verticalAlign, `${label}: 揃えRedo`);
+      drag({ x: 110, y: 90 }, { x: 120, y: 95 });
+      assert(editor.selectedText().align === align && editor.selectedText().verticalAlign === verticalAlign, `${label}: サイズ変更で揃えを維持`);
+      await checkExport(alignedPixels(editor.selectedText()), `${label}: サイズ変更後の揃え保存`);
+    }
+  }
+  editor.setImage(source);
+  editor.commit({ ...fixtures.textBox, align: 'right', verticalAlign: 'bottom' });
+  editor.commit({ ...fixtures.speech, align: 'left', verticalAlign: 'top' });
+  editor.selectedIndex = 0; editor.setTextStyle({ align: 'center', verticalAlign: 'middle' });
+  assert(resolveOperations(editor.state.operations)[1].align === 'left' && resolveOperations(editor.state.operations)[1].verticalAlign === 'top', '他の注釈の水平・垂直揃えを変更しない');
+  const legacy = { ...fixtures.textBox }; delete legacy.verticalAlign;
+  assert(layoutText(legacy).verticalOffset === 0, '垂直揃えを持たない既存オブジェクトは上揃え');
   // Independently paint a fixed text fixture, without calling the text renderer/layout.
   editor.setImage(source);
   editor.commit({ ...TEXT_DEFAULTS, type: 'textBoxAnnotation', x: 10, y: 10, width: 100, height: 60,

@@ -1,9 +1,9 @@
-import { isTextObject, layoutText } from './text.js';
-import { MosaicEditor } from "./editor.js?v=7";
-import { exportImage } from "./export.js?v=7";
+import { isTextObject, layoutText } from './text.js?v=8';
+import { MosaicEditor } from "./editor.js?v=8";
+import { exportImage } from "./export.js?v=8";
 
 const elements = Object.fromEntries([
-  "textSettings", "shapeSettings", "textStatus", "fontMode", "fontSize", "textBold", "textColor", "textAlign", "textBackground", "textBorder", "textOpacity", "editText", "deleteText",
+  "textSettings", "shapeSettings", "textStatus", "fontMode", "fontSize", "textBold", "textColor", "textAlign", "textVerticalAlign", "textBackground", "textBorder", "textOpacity", "editText", "deleteText",
   "stage", "dropZone", "editorView", "editorCanvas", "openInitial", "openAnother", "fileInput",
   "loading", "message", "mosaicSize", "mosaicValue", "brushSize", "brushValue", "brushSizeRow",
   "annotationStrokeWidth", "annotationStrokeValue", "undo", "redo", "saveImage", "zoomIn", "zoomOut", "zoomReset", "zoomValue",
@@ -34,6 +34,7 @@ function updateInterface(state) {
   elements.textBold.checked = style.bold;
   elements.textColor.value = style.textColor;
   elements.textAlign.value = style.align;
+  elements.textVerticalAlign.value = style.verticalAlign || 'top';
   elements.textBackground.value = style.background;
   elements.textBorder.value = style.borderColor;
   elements.textOpacity.value = style.opacity * 100;
@@ -196,7 +197,7 @@ document.querySelectorAll("[data-annotation-color]").forEach((button) => {
 for (const [id, key, value] of [
   ['fontMode', 'fontMode', el => el.value], ['fontSize', 'fontSize', el => Math.max(1, Math.min(1000, Number(el.value) || 32))],
   ['textBold', 'bold', el => el.checked], ['textColor', 'textColor', el => el.value],
-  ['textAlign', 'align', el => el.value], ['textBackground', 'background', el => el.value],
+  ['textAlign', 'align', el => el.value], ['textVerticalAlign', 'verticalAlign', el => el.value], ['textBackground', 'background', el => el.value],
   ['textBorder', 'borderColor', el => el.value], ['textOpacity', 'opacity', el => Number(el.value) / 100],
 ]) elements[id].addEventListener('change', () => { editor.setTextStyle({ [key]: value(elements[id]) }); updateInterface(editor.state); });
 elements.editText.addEventListener('click', () => editor.editText());
